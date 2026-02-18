@@ -1,0 +1,282 @@
+{
+  "feature_names": [
+    "Age",
+    "Gender",
+    "Weight",
+    "Diabetes",
+    "Hypertension",
+    "Kidney Failure Cause",
+    "Creatinine",
+    "Urea",
+    "Potassium",
+    "Hemoglobin",
+    "Hematocrit",
+    "Albumin",
+    "Dialysis Duration (hours)",
+    "Dialysis Frequency (per week)",
+    "Dialysate Composition",
+    "Vascular Access Type",
+    "Dialyzer Type",
+    "Urine Output (ml/day)",
+    "Dry Weight (kg)",
+    "Fluid Removal Rate (ml/hour)",
+    "Disease Severity",
+    "Current_BP",
+    "Current_HR",
+    "Time_Minutes",
+    "BP_Change",
+    "HR_Change",
+    "BP_Deviation",
+    "HR_Deviation",
+    "BP_Volatility",
+    "HR_Volatility",
+    "Fluid_Rate_Per_Kg",
+    "Session_Progress"
+  ],
+  "n_features": 32,
+  "n_timesteps": 30,
+  "static_features": [
+    "Age",
+    "Gender",
+    "Weight",
+    "Diabetes",
+    "Hypertension",
+    "Kidney Failure Cause",
+    "Creatinine",
+    "Urea",
+    "Potassium",
+    "Hemoglobin",
+    "Hematocrit",
+    "Albumin",
+    "Dialysis Duration (hours)",
+    "Dialysis Frequency (per week)",
+    "Dialysate Composition",
+    "Vascular Access Type",
+    "Dialyzer Type",
+    "Urine Output (ml/day)",
+    "Dry Weight (kg)",
+    "Fluid Removal Rate (ml/hour)",
+    "Disease Severity"
+  ],
+  "temporal_features": [
+    "Current_BP",
+    "Current_HR",
+    "Time_Minutes"
+  ],
+  "categorical_features": [
+    "Gender",
+    "Kidney Failure Cause",
+    "Dialysate Composition",
+    "Vascular Access Type",
+    "Dialyzer Type",
+    "Disease Severity"
+  ],
+  "boolean_features": [
+    "Diabetes",
+    "Hypertension"
+  ],
+  "engineered_features": [
+    "BP_Change",
+    "HR_Change",
+    "BP_Deviation",
+    "HR_Deviation",
+    "BP_Volatility",
+    "HR_Volatility",
+    "Fluid_Rate_Per_Kg",
+    "Session_Progress"
+  ],
+  "feature_ranges": {
+    "Age": {
+      "min": 18.0,
+      "max": 89.0,
+      "mean": 53.43,
+      "std": 20.93
+    },
+    "Gender": {
+      "min": 0.0,
+      "max": 1.0,
+      "mean": 0.49,
+      "std": 0.5
+    },
+    "Weight": {
+      "min": 50.0,
+      "max": 120.0,
+      "mean": 84.64,
+      "std": 20.28
+    },
+    "Diabetes": {
+      "min": 0.0,
+      "max": 1.0,
+      "mean": 0.51,
+      "std": 0.5
+    },
+    "Hypertension": {
+      "min": 0.0,
+      "max": 1.0,
+      "mean": 0.49,
+      "std": 0.5
+    },
+    "Kidney Failure Cause": {
+      "min": 0.0,
+      "max": 2.0,
+      "mean": 1.01,
+      "std": 0.81
+    },
+    "Creatinine": {
+      "min": 1.0,
+      "max": 9.99,
+      "mean": 5.49,
+      "std": 2.59
+    },
+    "Urea": {
+      "min": 15.0,
+      "max": 100.0,
+      "mean": 57.26,
+      "std": 24.69
+    },
+    "Potassium": {
+      "min": 3.5,
+      "max": 5.5,
+      "mean": 4.51,
+      "std": 0.58
+    },
+    "Hemoglobin": {
+      "min": 8.0,
+      "max": 15.0,
+      "mean": 11.48,
+      "std": 2.01
+    },
+    "Hematocrit": {
+      "min": 30.0,
+      "max": 45.0,
+      "mean": 37.47,
+      "std": 4.32
+    },
+    "Albumin": {
+      "min": 3.0,
+      "max": 5.0,
+      "mean": 4.0,
+      "std": 0.58
+    },
+    "Dialysis Duration (hours)": {
+      "min": 3.0,
+      "max": 5.0,
+      "mean": 4.01,
+      "std": 0.58
+    },
+    "Dialysis Frequency (per week)": {
+      "min": 1.0,
+      "max": 3.0,
+      "mean": 2.01,
+      "std": 0.82
+    },
+    "Dialysate Composition": {
+      "min": 0.0,
+      "max": 1.0,
+      "mean": 0.48,
+      "std": 0.5
+    },
+    "Vascular Access Type": {
+      "min": 0.0,
+      "max": 2.0,
+      "mean": 0.99,
+      "std": 0.82
+    },
+    "Dialyzer Type": {
+      "min": 0.0,
+      "max": 1.0,
+      "mean": 0.51,
+      "std": 0.5
+    },
+    "Urine Output (ml/day)": {
+      "min": 0.0,
+      "max": 999.0,
+      "mean": 497.9,
+      "std": 290.73
+    },
+    "Dry Weight (kg)": {
+      "min": 45.0,
+      "max": 115.0,
+      "mean": 80.33,
+      "std": 20.38
+    },
+    "Fluid Removal Rate (ml/hour)": {
+      "min": 200.0,
+      "max": 499.9,
+      "mean": 350.07,
+      "std": 85.85
+    },
+    "Disease Severity": {
+      "min": 0.0,
+      "max": 2.0,
+      "mean": 1.71,
+      "std": 0.52
+    },
+    "Current_BP": {
+      "min": 69.78,
+      "max": 187.8,
+      "mean": 125.45,
+      "std": 19.23
+    },
+    "Current_HR": {
+      "min": 49.32,
+      "max": 109.43,
+      "mean": 79.48,
+      "std": 11.91
+    },
+    "Time_Minutes": {
+      "min": 0.0,
+      "max": 232.0,
+      "mean": 116.0,
+      "std": 69.24
+    },
+    "BP_Change": {
+      "min": -28.15,
+      "max": 27.01,
+      "mean": -0.96,
+      "std": 5.88
+    },
+    "HR_Change": {
+      "min": -19.08,
+      "max": 20.23,
+      "mean": -0.0,
+      "std": 4.17
+    },
+    "BP_Deviation": {
+      "min": -105.71,
+      "max": 68.51,
+      "mean": -14.29,
+      "std": 25.41
+    },
+    "HR_Deviation": {
+      "min": -19.38,
+      "max": 18.83,
+      "mean": 0.01,
+      "std": 4.19
+    },
+    "BP_Volatility": {
+      "min": 0.0,
+      "max": 17.65,
+      "mean": 4.6,
+      "std": 2.18
+    },
+    "HR_Volatility": {
+      "min": 0.0,
+      "max": 12.97,
+      "mean": 2.7,
+      "std": 1.18
+    },
+    "Fluid_Rate_Per_Kg": {
+      "min": 1.7,
+      "max": 9.98,
+      "mean": 4.4,
+      "std": 1.59
+    },
+    "Session_Progress": {
+      "min": 0.0,
+      "max": 1.0,
+      "mean": 0.5,
+      "std": 0.3
+    }
+  }
+}
