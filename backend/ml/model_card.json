@@ -1,49 +1,77 @@
 {
-  "model_name": "DialysisGuard Attention-GRU v1.0",
-  "model_type": "Attention-Augmented GRU (128\u219264\u2192Attention\u219232)",
+  "model_name": "DialysisGuard Attention-BiGRU v2.0",
+  "model_type": "Attention-Augmented BiGRU (64\u219232\u2192Attention\u2192Dense32)",
   "task": "Binary classification \u2014 Hemodialysis instability prediction",
+  "version": "2.0",
+  "changes_from_v1": [
+    "BiGRU (bidirectional) instead of unidirectional GRU",
+    "Separated static/temporal feature processing",
+    "Removed RepeatVector bottleneck",
+    "Per-sequence classification using last-timestep label",
+    "Sliding window augmentation for partial-sequence robustness",
+    "Scaler fitted on training data only (no data snooping)"
+  ],
   "training_dataset": {
     "source": "synthetic_hemodialysis_timeseries.csv",
     "total_rows": 150000,
     "patients": 5000,
     "time_steps_per_patient": 30,
     "features": 32,
-    "target_distribution": {
-      "stable": 2380,
-      "unstable": 2620
+    "n_static_features": 21,
+    "n_temporal_features": 11,
+    "target_distribution_row_level": {
+      "stable": 123558,
+      "unstable": 26442,
+      "positive_rate": "17.6%"
+    },
+    "target_distribution_last_step": {
+      "stable": 2977,
+      "unstable": 2023
     }
   },
   "performance": {
-    "accuracy": 0.92,
-    "auc": 0.9821,
-    "precision": 0.9302,
-    "recall": 0.916,
-    "f1": 0.9231,
+    "accuracy": 0.9573,
+    "auc": 0.9927,
+    "precision": 0.9502,
+    "recall": 0.9439,
+    "f1": 0.947,
     "confusion_matrix": [
       [
-        330,
-        27
+        432,
+        15
       ],
       [
-        33,
-        360
+        17,
+        286
       ]
     ]
   },
   "architecture": {
-    "gru_layers": [
-      128,
+    "type": "BiGRU with separated feature paths",
+    "bigru_layers": [
       64,
       32
     ],
     "attention_units": 64,
     "dense_layers": [
-      64,
       32
     ],
     "dropout_rate": 0.3,
     "optimizer": "Adam (amsgrad=True)",
-    "learning_rate": 0.001
+    "learning_rate": 0.001,
+    "static_embedding_dim": 32
+  },
+  "training_details": {
+    "sliding_window_sizes": [
+      10,
+      15,
+      20,
+      25,
+      30
+    ],
+    "class_weight_applied": true,
+    "scaler": "StandardScaler (train-only fit)",
+    "early_stopping": "val_auc, patience=15"
   },
   "xai_capabilities": [
     "SHAP feature attribution (DeepExplainer)",
@@ -64,6 +92,6 @@
     "Risk predictions must always be reviewed by qualified clinicians",
     "False negatives (missed instability) carry higher clinical risk than false positives"
   ],
-  "framework": "TensorFlow 2.15.0",
-  "last_trained": "2026-02-19 01:24"
+  "framework": "TensorFlow 2.18.0",
+  "last_trained": "2026-02-19 13:10"
 }

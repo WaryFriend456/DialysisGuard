@@ -1,0 +1,16 @@
+{
+  "n_timesteps": 30,
+  "n_features": 32,
+  "n_static": 21,
+  "n_temporal": 11,
+  "gru_units": [
+    64,
+    32
+  ],
+  "attention_units": 64,
+  "dense_units": [
+    32
+  ],
+  "dropout_rate": 0.3,
+  "learning_rate": 0.001
+}

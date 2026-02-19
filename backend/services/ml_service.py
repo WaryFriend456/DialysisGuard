@@ -1,26 +1,35 @@
 """
-ML Service — Model inference, MC Dropout, attention extraction.
-Loads the trained GRU model and provides prediction utilities.
+ML Service — Model Inference for Real-Time Monitoring
+
+Handles loading the trained BiGRU model and performing inference
+on streaming data from the simulation engine.
+
+Key responsibilities:
+    - Load model, scaler, label encoders from saved artifacts
+    - Preprocess raw simulation data into model input format
+    - Make predictions with uncertainty (MC Dropout)
+    - Extract attention weights for XAI
+    - Map risk probabilities to clinical risk levels
+
+v2 changes:
+    - Feature-repeat padding instead of zero-padding for partial sequences
+    - Uses feature_config.json for n_static / n_temporal counts
+    - Clinical risk thresholds refined
 """
+
 import os
 import sys
 import json
 import numpy as np
 import joblib
+import tensorflow as tf
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import settings
 
-# Suppress TF warnings
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-import tensorflow as tf
-
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'ml'))
-from attention_gru import AttentionGRUModel, BahdanauAttention
-
 
 class MLService:
-    """Manages model loading, prediction, and uncertainty estimation."""
+    """Singleton service for hemodialysis instability prediction."""
     
     _instance = None
     
@@ -31,61 +40,105 @@ class MLService:
         return cls._instance
     
     def initialize(self):
-        """Load model and preprocessing artifacts."""
+        """Load model and preprocessing artifacts from disk."""
         if self._initialized:
             return
         
-        print("🧠 Loading ML model and artifacts...")
+        model_dir = settings.MODEL_DIR
+        print(f"[ML Service] Loading model from: {model_dir}")
         
-        # Load feature config
-        with open(settings.FEATURE_CONFIG_PATH, 'r') as f:
-            self.feature_config = json.load(f)
+        import sys
+        sys.setrecursionlimit(10000)
+        
+        # Load model: prefer weights + architecture config (avoids serialization issues)
+        arch_path = os.path.join(model_dir, 'model_architecture.json')
+        weights_path = os.path.join(model_dir, 'model_weights.weights.h5')
+        
+        if os.path.exists(arch_path) and os.path.exists(weights_path):
+            from ml.attention_gru import AttentionGRUModel
+            with open(arch_path) as f:
+                arch = json.load(f)
+            
+            builder = AttentionGRUModel(
+                n_timesteps=arch['n_timesteps'],
+                n_features=arch['n_features'],
+                n_static=arch['n_static'],
+                n_temporal=arch['n_temporal'],
+                gru_units=tuple(arch['gru_units']),
+                attention_units=arch['attention_units'],
+                dense_units=tuple(arch['dense_units']),
+                dropout_rate=arch['dropout_rate'],
+                learning_rate=arch['learning_rate']
+            )
+            builder.build()
+            builder.model.load_weights(weights_path)
+            self.model = builder.model
+            self._attention_extractor = builder.attention_model
+            print(f"  Model loaded from architecture + weights")
+        else:
+            # Fallback to full model file
+            from ml.attention_gru import BahdanauAttention
+            model_path = os.path.join(model_dir, 'gru_model.keras')
+            if not os.path.exists(model_path):
+                model_path = os.path.join(model_dir, 'gru_model.h5')
+            self.model = tf.keras.models.load_model(
+                model_path,
+                custom_objects={'BahdanauAttention': BahdanauAttention}
+            )
+            self._attention_extractor = None
+            print(f"  Model loaded: {model_path}")
         
         # Load scaler
-        self.scaler = joblib.load(settings.SCALER_PATH)
+        scaler_path = os.path.join(model_dir, 'scaler.pkl')
+        self.scaler = joblib.load(scaler_path)
+        print(f"  Scaler loaded: {scaler_path}")
         
         # Load label encoders
-        self.label_encoders = joblib.load(settings.ENCODERS_PATH)
+        encoders_path = os.path.join(model_dir, 'label_encoders.pkl')
+        self.label_encoders = joblib.load(encoders_path)
+        print(f"  Label encoders loaded: {encoders_path}")
         
-        # Load model card
-        with open(settings.MODEL_CARD_PATH, 'r') as f:
-            self.model_card = json.load(f)
+        # Load feature config
+        config_path = os.path.join(model_dir, 'feature_config.json')
+        with open(config_path) as f:
+            self.feature_config = json.load(f)
         
-        # Load model with custom objects
-        self.model = tf.keras.models.load_model(
-            settings.MODEL_PATH,
-            custom_objects={'BahdanauAttention': BahdanauAttention}
-        )
-        
-        # Build the model builder wrapper for MC Dropout & attention
-        n_timesteps = self.feature_config['n_timesteps']
-        n_features = self.feature_config['n_features']
-        
-        self.builder = AttentionGRUModel(n_timesteps, n_features)
-        self.builder.model = self.model
-        self.builder._build_attention_model()
+        self.feature_names = self.feature_config['feature_names']
+        self.n_timesteps = self.feature_config.get('n_timesteps', 30)
+        self.n_features = self.feature_config.get('n_features', len(self.feature_names))
+        self.n_static = self.feature_config.get('n_static', 21)
+        self.n_temporal = self.feature_config.get('n_temporal', 11)
+        self.categorical_features = self.feature_config.get('categorical_features', [])
+        print(f"  Features: {self.n_features} ({self.n_static} static + {self.n_temporal} temporal)")
+        print(f"  Sequence length: {self.n_timesteps}")
         
         self._initialized = True
-        print(f"✅ Model loaded: {n_features} features, {n_timesteps} timesteps")
+        print("[ML Service] ✅ Ready")
     
     def preprocess_sequence(self, raw_data: list) -> np.ndarray:
         """
-        Preprocess a sequence of raw vital readings.
-        raw_data: list of dicts, each containing feature values for one time step.
-        Returns: scaled numpy array (1, timesteps, features)
+        Convert raw simulation data to scaled model input.
+        
+        Args:
+            raw_data: List of dicts, each representing one time step
+                      from the simulation engine.
+        
+        Returns:
+            X: numpy array of shape (1, n_timesteps, n_features)
+               Padded with feature-repeat if fewer than n_timesteps steps.
         """
-        feature_names = self.feature_config['feature_names']
-        n_timesteps = self.feature_config['n_timesteps']
+        if not self._initialized:
+            self.initialize()
         
-        # Categorical features that need label encoding
-        categorical_features = set(self.label_encoders.keys())
+        feature_names = self.feature_names
+        categorical_features = self.categorical_features
         
-        # Convert to array, encoding categoricals
         sequence = []
         for step in raw_data:
             row = []
             for feat in feature_names:
                 val = step.get(feat, 0.0)
+                
                 if feat in categorical_features:
                     # Encode using label encoder
                     encoder = self.label_encoders[feat]
@@ -101,81 +154,164 @@ class MLService:
                         val = float(val)
                     except (ValueError, TypeError):
                         val = 0.0
+                
                 row.append(val)
             sequence.append(row)
         
-        # Pad with zeros if fewer than n_timesteps
-        while len(sequence) < n_timesteps:
-            sequence.insert(0, [0.0] * len(feature_names))
+        X = np.array(sequence, dtype=np.float32)
         
-        # Take only last n_timesteps
-        sequence = sequence[-n_timesteps:]
+        # Handle padding: if fewer than n_timesteps, pad with FIRST STEP
+        # (not zeros — zero-padding is out-of-distribution for our scaler)
+        if len(sequence) < self.n_timesteps:
+            pad_length = self.n_timesteps - len(sequence)
+            first_step = X[0:1, :]  # (1, n_features)
+            padding = np.repeat(first_step, pad_length, axis=0)
+            X = np.concatenate([padding, X], axis=0)
+        elif len(sequence) > self.n_timesteps:
+            # Take last n_timesteps
+            X = X[-self.n_timesteps:, :]
         
-        X = np.array([sequence], dtype=np.float32)
-        
-        # Scale
-        n_ts, n_feat = X.shape[1], X.shape[2]
-        X_flat = X.reshape(-1, n_feat)
+        # Scale using the training-fitted scaler
+        X_flat = X.reshape(-1, self.n_features)
         X_scaled = self.scaler.transform(X_flat)
-        X = X_scaled.reshape(1, n_ts, n_feat).astype(np.float32)
-        X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+        X_scaled = X_scaled.reshape(1, self.n_timesteps, self.n_features)
         
-        return X
+        # Clean up any NaN/Inf
+        X_scaled = np.nan_to_num(X_scaled, nan=0.0, posinf=0.0, neginf=0.0)
+        
+        return X_scaled.astype(np.float32)
     
-    def predict(self, X: np.ndarray) -> float:
-        """Standard prediction — returns risk probability."""
+    def predict(self, X: np.ndarray) -> dict:
+        """
+        Make a standard prediction.
+        
+        Args:
+            X: Preprocessed input (1, n_timesteps, n_features)
+        
+        Returns:
+            dict with probability, risk_level, risk_category
+        """
+        if not self._initialized:
+            self.initialize()
+        
+        # Model predicts P(unstable) for the sequence
         pred = self.model.predict(X, verbose=0)
-        return float(pred.squeeze())
+        prob = float(pred.squeeze())
+        
+        risk_level = self.get_risk_level(prob)
+        
+        return {
+            'probability': round(prob, 4),
+            'risk_level': risk_level,
+            'risk_category': self._risk_category(prob),
+            'recommendation': self._recommendation(risk_level)
+        }
     
-    def predict_with_uncertainty(self, X: np.ndarray, n_passes: int = None) -> dict:
-        """MC Dropout prediction with confidence interval."""
-        n = n_passes or settings.MC_DROPOUT_PASSES
-        return self.builder.predict_with_dropout(X, n_passes=n)
+    def predict_with_uncertainty(self, X: np.ndarray, n_passes: int = 20) -> dict:
+        """
+        MC Dropout prediction with uncertainty estimation.
+        
+        Runs the model multiple times with dropout enabled.
+        """
+        if not self._initialized:
+            self.initialize()
+        
+        predictions = []
+        for _ in range(n_passes):
+            pred = self.model(X, training=True)
+            predictions.append(pred.numpy())
+        
+        predictions = np.array(predictions)  # (n_passes, 1, 1)
+        
+        mean = float(np.mean(predictions))
+        std = float(np.std(predictions))
+        ci_lower = float(max(0, mean - 1.96 * std))
+        ci_upper = float(min(1, mean + 1.96 * std))
+        
+        return {
+            'mean': round(mean, 4),
+            'std': round(std, 4),
+            'ci_lower': round(ci_lower, 4),
+            'ci_upper': round(ci_upper, 4),
+            'confidence': round(1.0 - std, 4)  # Higher = more confident
+        }
     
     def get_attention_weights(self, X: np.ndarray) -> np.ndarray:
-        """Extract attention weights for explainability."""
-        return self.builder.get_attention_weights(X)
+        """
+        Extract attention weights from the model.
+        
+        Returns:
+            Attention weights (1, n_timesteps, 1) showing which
+            time steps the model focused on.
+        """
+        if not self._initialized:
+            self.initialize()
+        
+        if not hasattr(self, '_attention_extractor') or self._attention_extractor is None:
+            try:
+                # The BahdanauAttention layer produces (context, weights)
+                # Find the attention layer's output in the model's graph
+                attention_layer = self.model.get_layer('attention')
+                # Get the attention layer's output node — it has 2 outputs
+                # We need the second one (weights)
+                # Rebuild a model that outputs attention weights
+                dropout_2 = self.model.get_layer('dropout_2')
+                
+                # Re-compute attention using the layer's weights
+                score = attention_layer.V(tf.nn.tanh(attention_layer.W(dropout_2.output)))
+                attn_weights = tf.nn.softmax(score, axis=1)
+                
+                self._attention_extractor = tf.keras.Model(
+                    inputs=self.model.input,
+                    outputs=attn_weights
+                )
+            except Exception as e:
+                print(f"[ML Service] Warning: Building attention extractor failed: {e}")
+                print(f"[ML Service] Falling back to uniform attention weights")
+                self._attention_extractor = None
+        
+        if self._attention_extractor is not None:
+            try:
+                return self._attention_extractor.predict(X, verbose=0)
+            except Exception as e:
+                print(f"[ML Service] Warning: Attention extraction failed: {e}")
+        
+        return np.ones((1, self.n_timesteps, 1)) / self.n_timesteps
     
-    def get_risk_level(self, probability: float) -> str:
-        """Classify risk level from probability."""
-        if probability >= 0.75:
-            return "CRITICAL"
-        elif probability >= 0.50:
-            return "HIGH"
-        elif probability >= 0.30:
-            return "MODERATE"
-        return "LOW"
+    @staticmethod
+    def get_risk_level(probability: float) -> str:
+        """Map probability to clinical risk level."""
+        if probability < 0.25:
+            return 'low'
+        elif probability < 0.50:
+            return 'moderate'
+        elif probability < 0.75:
+            return 'high'
+        else:
+            return 'critical'
     
-    def get_recommendations(self, risk_level: str, top_features: list = None) -> list:
-        """Generate clinical recommendations based on risk level and contributing features."""
-        recs = []
-        
-        if risk_level in ("HIGH", "CRITICAL"):
-            recs.append("Assess patient vitals immediately")
-            recs.append("Consider reducing ultrafiltration rate")
-            recs.append("Prepare for potential fluid bolus or intervention")
-        
-        if risk_level == "CRITICAL":
-            recs.append("Alert attending physician immediately")
-            recs.append("Consider early session termination if patient deteriorates")
-        
-        if top_features:
-            for feat in top_features[:3]:
-                name = feat.get('name', '')
-                direction = feat.get('direction', '')
-                if 'BP' in name and direction == 'risk_increasing':
-                    recs.append("Monitor blood pressure closely — contributing to elevated risk")
-                elif 'HR' in name and direction == 'risk_increasing':
-                    recs.append("Monitor heart rate — compensatory tachycardia detected")
-                elif 'Fluid' in name:
-                    recs.append("Consider adjusting fluid removal rate")
-        
-        if risk_level == "MODERATE":
-            recs.append("Continue monitoring — increased vigilance recommended")
-        elif risk_level == "LOW":
-            recs.append("Continue standard monitoring")
-        
-        return recs[:5]
+    @staticmethod
+    def _risk_category(probability: float) -> str:
+        """Get descriptive risk category."""
+        if probability < 0.25:
+            return 'Patient appears hemodynamically stable'
+        elif probability < 0.50:
+            return 'Mild risk indicators present — monitor closely'
+        elif probability < 0.75:
+            return 'Significant instability predicted — prepare intervention'
+        else:
+            return 'Critical instability imminent — immediate action required'
+    
+    @staticmethod
+    def _recommendation(risk_level: str) -> str:
+        """Get clinical recommendation based on risk level."""
+        recommendations = {
+            'low': 'Continue standard monitoring protocol',
+            'moderate': 'Increase monitoring frequency; check fluid removal rate',
+            'high': 'Consider reducing ultrafiltration rate; prepare vasopressors',
+            'critical': 'Stop ultrafiltration; administer saline bolus; call attending physician'
+        }
+        return recommendations.get(risk_level, 'Assess patient status')
 
 
 # Singleton instance

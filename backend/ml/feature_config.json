@@ -35,6 +35,8 @@
   ],
   "n_features": 32,
   "n_timesteps": 30,
+  "n_static": 21,
+  "n_temporal": 11,
   "static_features": [
     "Age",
     "Gender",

@@ -1,13 +1,25 @@
 """
-Attention-Augmented GRU Model for Hemodialysis Instability Prediction.
+Attention-Augmented BiGRU Model for Hemodialysis Instability Prediction.
 
-Architecture:
-    Input → GRU(128) → BatchNorm → GRU(64) → BatchNorm →
-    ★ Bahdanau Attention ★ → GRU(32) → BatchNorm →
-    Dense(64) → Dropout → Dense(32) → Dropout → Dense(1, sigmoid)
+Architecture (v2 — Per-Timestep):
+    Static Features → Dense(32) → Repeat across timesteps ─┐
+                                                            ├─ Concat
+    Temporal Features → BatchNorm ──────────────────────────┘
+                                                            ↓
+    BiGRU(64, return_sequences=True) → BatchNorm → Dropout
+                                                            ↓
+    BiGRU(32, return_sequences=True) → BatchNorm → Dropout
+                                                            ↓
+    ★ Bahdanau Attention ★ (for XAI — extracts temporal weights)
+                                                            ↓
+    Dense(32, relu) → Dropout → Dense(1, sigmoid)
 
-The Attention layer produces temporal weights showing which time steps
-contributed most to the prediction - key for explainability.
+Changes from v1:
+    - Per-timestep prediction (return_sequences on final output)
+    - Bidirectional GRU for better temporal capture
+    - Separated static/temporal feature paths
+    - Removed RepeatVector(1) → GRU(32) bottleneck
+    - Attention now used purely for XAI weight extraction
 """
 
 import tensorflow as tf
@@ -33,7 +45,7 @@ class BahdanauAttention(layers.Layer):
         self.W = layers.Dense(units, use_bias=False)
         self.V = layers.Dense(1, use_bias=False)
     
-    def call(self, inputs, return_attention=False):
+    def call(self, inputs):
         # inputs shape: (batch, timesteps, features)
         # score shape: (batch, timesteps, 1)
         score = self.V(tf.nn.tanh(self.W(inputs)))
@@ -44,9 +56,8 @@ class BahdanauAttention(layers.Layer):
         # context_vector shape: (batch, features)
         context_vector = tf.reduce_sum(attention_weights * inputs, axis=1)
         
-        if return_attention:
-            return context_vector, attention_weights
-        return context_vector
+        # Always return both — context for prediction, weights for XAI
+        return context_vector, attention_weights
     
     def get_config(self):
         config = super(BahdanauAttention, self).get_config()
@@ -56,18 +67,22 @@ class BahdanauAttention(layers.Layer):
 
 class AttentionGRUModel:
     """
-    Builds and manages the Attention-Augmented GRU model.
+    Builds and manages the Attention-Augmented BiGRU model (v2).
     
-    The model takes sequences of shape (timesteps, features) and predicts
-    instability probability. The attention layer provides temporal
-    explainability by showing which time steps matter most.
+    Key improvements over v1:
+    - Bidirectional GRU layers
+    - Separated static/temporal feature processing
+    - Per-sequence classification (context from attention → Dense → sigmoid)
+    - No RepeatVector bottleneck
     """
     
-    def __init__(self, n_timesteps, n_features, gru_units=(128, 64, 32),
-                 attention_units=64, dense_units=(64, 32),
-                 dropout_rate=0.3, learning_rate=0.001):
+    def __init__(self, n_timesteps, n_features, n_static=21, n_temporal=11,
+                 gru_units=(64, 32), attention_units=64,
+                 dense_units=(32,), dropout_rate=0.3, learning_rate=0.001):
         self.n_timesteps = n_timesteps
         self.n_features = n_features
+        self.n_static = n_static
+        self.n_temporal = n_temporal
         self.gru_units = gru_units
         self.attention_units = attention_units
         self.dense_units = dense_units
@@ -75,54 +90,74 @@ class AttentionGRUModel:
         self.learning_rate = learning_rate
         
         self.model = None
-        self.attention_model = None  # For extracting attention weights
+        self.attention_model = None
     
     def build(self):
-        """Build the full model with attention layer."""
+        """Build the full model with separated feature paths."""
         inputs = layers.Input(shape=(self.n_timesteps, self.n_features),
                               name='sequence_input')
         
-        # GRU Layer 1
-        x = layers.GRU(self.gru_units[0], return_sequences=True,
-                        name='gru_1')(inputs)
+        # === Separate static and temporal features ===
+        # Static features: first n_static columns (constant per patient)
+        static_slice = layers.Lambda(
+            lambda x: x[:, 0, :self.n_static],  # Take from first timestep (they're constant)
+            name='static_slice'
+        )(inputs)
+        
+        # Temporal features: remaining columns (vary per timestep)
+        temporal_slice = layers.Lambda(
+            lambda x: x[:, :, self.n_static:],
+            name='temporal_slice'
+        )(inputs)
+        
+        # === Static feature embedding ===
+        static_embed = layers.Dense(32, activation='relu', name='static_embed')(static_slice)
+        static_embed = layers.Dropout(self.dropout_rate * 0.5, name='static_dropout')(static_embed)
+        # Repeat across timesteps for concatenation
+        static_repeated = layers.RepeatVector(self.n_timesteps, name='static_repeat')(static_embed)
+        
+        # === Temporal feature normalization ===
+        temporal_normed = layers.BatchNormalization(name='temporal_bn')(temporal_slice)
+        
+        # === Concatenate static embedding + temporal features ===
+        combined = layers.Concatenate(name='combine_features')([static_repeated, temporal_normed])
+        
+        # === BiGRU Layer 1 ===
+        x = layers.Bidirectional(
+            layers.GRU(self.gru_units[0], return_sequences=True, name='gru_1'),
+            name='bigru_1'
+        )(combined)
         x = layers.BatchNormalization(name='bn_1')(x)
         x = layers.Dropout(self.dropout_rate, name='dropout_1')(x)
         
-        # GRU Layer 2
-        x = layers.GRU(self.gru_units[1], return_sequences=True,
-                        name='gru_2')(x)
+        # === BiGRU Layer 2 ===
+        x = layers.Bidirectional(
+            layers.GRU(self.gru_units[1], return_sequences=True, name='gru_2'),
+            name='bigru_2'
+        )(x)
         x = layers.BatchNormalization(name='bn_2')(x)
         x = layers.Dropout(self.dropout_rate, name='dropout_2')(x)
         
-        # Attention Layer - produces temporal weights
-        attention_layer = BahdanauAttention(self.attention_units,
-                                            name='attention')
-        context = attention_layer(x)
+        # === Attention Layer (produces context vector + attention weights) ===
+        attention_layer = BahdanauAttention(self.attention_units, name='attention')
+        context, attn_weights = attention_layer(x)
         
-        # Reshape context for GRU Layer 3 (needs 3D input)
-        context_expanded = layers.RepeatVector(1, name='expand_context')(context)
+        # === Classification Head ===
+        z = layers.Dense(self.dense_units[0], activation='relu', name='dense_1')(context)
+        z = layers.Dropout(self.dropout_rate, name='dropout_dense_1')(z)
         
-        # GRU Layer 3
-        x = layers.GRU(self.gru_units[2], return_sequences=False,
-                        name='gru_3')(context_expanded)
-        x = layers.BatchNormalization(name='bn_3')(x)
-        x = layers.Dropout(self.dropout_rate * 0.67, name='dropout_3')(x)
-        
-        # Dense layers
-        x = layers.Dense(self.dense_units[0], activation='relu',
-                          name='dense_1')(x)
-        x = layers.Dropout(self.dropout_rate, name='dropout_dense_1')(x)
-        
-        x = layers.Dense(self.dense_units[1], activation='relu',
-                          name='dense_2')(x)
-        x = layers.Dropout(self.dropout_rate * 0.67, name='dropout_dense_2')(x)
-        
-        # Output
+        # Output: single probability per sequence
         outputs = layers.Dense(1, activation='sigmoid',
-                               name='prediction', dtype='float32')(x)
+                               name='prediction', dtype='float32')(z)
         
         self.model = Model(inputs=inputs, outputs=outputs,
-                           name='DialysisGuard_AttentionGRU')
+                           name='DialysisGuard_AttentionBiGRU_v2')
+        
+        # Build attention extraction model (shares layers with main model)
+        self.attention_model = Model(
+            inputs=inputs, outputs=attn_weights,
+            name='attention_extractor'
+        )
         
         # Compile
         optimizer = tf.keras.optimizers.Adam(
@@ -143,31 +178,7 @@ class AttentionGRUModel:
             ]
         )
         
-        # Build attention extraction model
-        self._build_attention_model()
-        
         return self.model
-    
-    def _build_attention_model(self):
-        """Build a secondary model that outputs attention weights."""
-        if self.model is None:
-            raise ValueError("Must build main model first")
-        
-        attention_layer = self.model.get_layer('attention')
-        
-        # Get the input to the attention layer (output of gru_2 + bn_2 + dropout_2)
-        gru2_dropout_output = self.model.get_layer('dropout_2').output
-        
-        # Create a function to extract attention weights
-        # We'll rebuild the attention computation to get weights
-        score = attention_layer.V(tf.nn.tanh(attention_layer.W(gru2_dropout_output)))
-        attention_weights = tf.nn.softmax(score, axis=1)
-        
-        self.attention_model = Model(
-            inputs=self.model.input,
-            outputs=attention_weights,
-            name='attention_extractor'
-        )
     
     def get_attention_weights(self, X):
         """
@@ -181,7 +192,7 @@ class AttentionGRUModel:
             time step contributed to the prediction.
         """
         if self.attention_model is None:
-            self._build_attention_model()
+            raise ValueError("Model must be built first")
         return self.attention_model.predict(X, verbose=0)
     
     def predict_with_dropout(self, X, n_passes=20):
@@ -214,14 +225,14 @@ class AttentionGRUModel:
             'all_predictions': predictions.squeeze().tolist()
         }
     
-    def get_callbacks(self, patience=10):
+    def get_callbacks(self, patience=10, checkpoint_path=None):
         """Get training callbacks."""
-        return [
+        callbacks = [
             tf.keras.callbacks.EarlyStopping(
                 monitor='val_auc',
                 patience=patience,
                 mode='max',
-                restore_best_weights=True,
+                restore_best_weights=False,  # False to avoid deepcopy/recursion issues
                 verbose=1
             ),
             tf.keras.callbacks.ReduceLROnPlateau(
@@ -232,6 +243,20 @@ class AttentionGRUModel:
                 verbose=1
             )
         ]
+        
+        if checkpoint_path:
+            callbacks.append(
+                tf.keras.callbacks.ModelCheckpoint(
+                    filepath=checkpoint_path,
+                    monitor='val_auc',
+                    mode='max',
+                    save_best_only=True,
+                    save_weights_only=True,
+                    verbose=1
+                )
+            )
+        
+        return callbacks
     
     def summary(self):
         """Print model summary."""
