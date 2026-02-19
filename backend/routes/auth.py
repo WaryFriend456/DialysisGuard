@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from datetime import datetime, timedelta
 from jose import jwt, JWTError
-from passlib.context import CryptContext
+import bcrypt
 from bson import ObjectId
 import sys
 import os
@@ -16,8 +16,19 @@ from database import get_database
 from models.schemas import UserRegister, UserLogin, UserResponse, TokenResponse
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
+
+
+def hash_password(password: str) -> str:
+    """Hash a password using bcrypt."""
+    pwd_bytes = password.encode("utf-8")[:72]  # bcrypt max 72 bytes
+    return bcrypt.hashpw(pwd_bytes, bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(password: str, hashed: str) -> bool:
+    """Verify a password against a bcrypt hash."""
+    pwd_bytes = password.encode("utf-8")[:72]
+    return bcrypt.checkpw(pwd_bytes, hashed.encode("utf-8"))
 
 
 def create_token(user_id: str, role: str) -> str:
@@ -70,7 +81,7 @@ async def register(data: UserRegister):
     user_doc = {
         "name": data.name,
         "email": data.email,
-        "password_hash": pwd_context.hash(data.password),
+        "password_hash": hash_password(data.password),
         "role": data.role.value,
         "created_at": datetime.utcnow().isoformat()
     }
@@ -98,7 +109,7 @@ async def login(data: UserLogin):
     db = get_database()
     
     user = db.users.find_one({"email": data.email})
-    if not user or not pwd_context.verify(data.password, user["password_hash"]):
+    if not user or not verify_password(data.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
     user_id = str(user["_id"])

@@ -122,13 +122,13 @@ class XAIService:
         Approximate feature importance using prediction perturbation.
         Fallback when SHAP is unavailable.
         """
-        base_pred = self.ml_service.predict(X)
+        base_pred = self.ml_service.predict(X)['probability']
         importances = []
         
         for i, feat in enumerate(self.feature_names):
             X_perturbed = X.copy()
             X_perturbed[0, :, i] = 0.0  # Zero out feature
-            perturbed_pred = self.ml_service.predict(X_perturbed)
+            perturbed_pred = self.ml_service.predict(X_perturbed)['probability']
             importance = base_pred - perturbed_pred
             
             importances.append({
@@ -172,7 +172,7 @@ class XAIService:
         
         Modify specific features and see how the prediction changes.
         """
-        original_pred = self.ml_service.predict(X)
+        original_pred = self.ml_service.predict(X)['probability']
         original_uncertainty = self.ml_service.predict_with_uncertainty(X)
         
         # Apply modifications to raw data
@@ -184,7 +184,7 @@ class XAIService:
         
         # Re-preprocess and predict
         X_modified = self.ml_service.preprocess_sequence(modified_data)
-        modified_pred = self.ml_service.predict(X_modified)
+        modified_pred = self.ml_service.predict(X_modified)['probability']
         modified_uncertainty = self.ml_service.predict_with_uncertainty(X_modified)
         
         risk_delta = modified_pred - original_pred
@@ -219,7 +219,7 @@ class XAIService:
         
         Searches for small modifications that bring risk below target.
         """
-        original_pred = self.ml_service.predict(X)
+        original_pred = self.ml_service.predict(X)['probability']
         
         # Define modifiable features with their ranges
         modifiable = {
@@ -249,7 +249,7 @@ class XAIService:
                         step[feat] = new_val
                 
                 X_mod = self.ml_service.preprocess_sequence(modified_data)
-                new_risk = self.ml_service.predict(X_mod)
+                new_risk = self.ml_service.predict(X_mod)['probability']
                 
                 if new_risk < original_pred:
                     suggestions.append({
@@ -281,7 +281,7 @@ class XAIService:
         Sensitivity analysis — how much does each feature affect the prediction?
         Tests ±10% changes in each numerical feature.
         """
-        original_pred = self.ml_service.predict(X)
+        original_pred = self.ml_service.predict(X)['probability']
         sensitivities = []
         
         numerical_features = [f for f in self.feature_names
@@ -299,7 +299,7 @@ class XAIService:
                 if feat in step:
                     step[feat] = step[feat] * 1.1
             X_up = self.ml_service.preprocess_sequence(up_data)
-            up_risk = self.ml_service.predict(X_up)
+            up_risk = self.ml_service.predict(X_up)['probability']
             
             # Test -10%
             down_data = [step.copy() for step in raw_data]
@@ -307,7 +307,7 @@ class XAIService:
                 if feat in step:
                     step[feat] = step[feat] * 0.9
             X_down = self.ml_service.preprocess_sequence(down_data)
-            down_risk = self.ml_service.predict(X_down)
+            down_risk = self.ml_service.predict(X_down)['probability']
             
             sensitivities.append({
                 'feature': feat,

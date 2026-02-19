@@ -313,6 +313,31 @@ class MLService:
         }
         return recommendations.get(risk_level, 'Assess patient status')
 
+    def get_recommendations(self, risk_level: str, top_features: list = None) -> list:
+        """
+        Generate clinical recommendations based on risk level and top features.
+        Called by realtime.py during alert creation.
+        """
+        recs = [self._recommendation(risk_level)]
+
+        if top_features:
+            feature_advice = {
+                'Current_BP': 'Monitor blood pressure closely',
+                'Current_HR': 'Check heart rate and rhythm',
+                'BP_Change': 'Assess rate of blood pressure decline',
+                'HR_Change': 'Evaluate heart rate variability',
+                'Fluid Removal Rate (ml/hour)': 'Consider adjusting ultrafiltration rate',
+                'UFR_to_Weight': 'Review fluid removal relative to patient weight',
+                'Session Time (mins)': 'Evaluate session timing',
+                'Time_Minutes': 'Note elapsed session time',
+            }
+            for feat in (top_features or [])[:3]:
+                name = feat.get('name', '') if isinstance(feat, dict) else str(feat)
+                if name in feature_advice and feat.get('direction') == 'risk_increasing':
+                    recs.append(feature_advice[name])
+
+        return recs
+
 
 # Singleton instance
 ml_service = MLService()

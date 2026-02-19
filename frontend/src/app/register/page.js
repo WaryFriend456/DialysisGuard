@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
+import { UserPlus, AlertCircle, ArrowRight } from 'lucide-react';
 
 export default function RegisterPage() {
     const [form, setForm] = useState({ name: '', email: '', password: '', role: 'doctor' });
@@ -25,75 +26,103 @@ export default function RegisterPage() {
         }
     };
 
-    return (
-        <div style={{
-            minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'linear-gradient(135deg, #0a0e17 0%, #111827 50%, #0f172a 100%)',
-            position: 'relative', overflow: 'hidden'
-        }}>
-            <div style={{
-                position: 'absolute', top: '30%', right: '20%', width: 300, height: 300,
-                borderRadius: '50%', background: 'radial-gradient(circle, rgba(6,182,212,0.08) 0%, transparent 70%)',
-                filter: 'blur(40px)'
-            }} />
+    const update = (key, val) => setForm((f) => ({ ...f, [key]: val }));
 
-            <div className="card" style={{
-                width: 440, padding: 40, textAlign: 'center',
-                background: 'rgba(17, 24, 39, 0.85)', backdropFilter: 'blur(20px)'
-            }}>
-                <h1 style={{
-                    fontSize: '1.5rem',
-                    background: 'linear-gradient(135deg, #06b6d4, #8b5cf6)',
-                    WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-                    marginBottom: 8, fontWeight: 800
-                }}>
-                    Create Account
-                </h1>
-                <p style={{ color: 'var(--text-muted)', marginBottom: 28, fontSize: '0.85rem' }}>
-                    Join DialysisGuard monitoring platform
-                </p>
+    return (
+        <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-bg-primary">
+            {/* Ambient glow */}
+            <div className="pointer-events-none absolute top-1/3 right-1/5 h-72 w-72 rounded-full bg-accent/5 blur-[80px]" />
+
+            <div className="card w-full max-w-md px-10 py-10 text-center backdrop-blur-xl animate-fade-in">
+                {/* Brand */}
+                <div className="mb-8 flex flex-col items-center gap-3">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent/15 shadow-glow-accent">
+                        <UserPlus className="h-6 w-6 text-accent" />
+                    </div>
+                    <div>
+                        <h1 className="text-2xl font-extrabold tracking-tight text-text-primary">
+                            Create Account
+                        </h1>
+                        <p className="mt-1 text-sm text-text-muted">
+                            Join DialysisGuard monitoring platform
+                        </p>
+                    </div>
+                </div>
 
                 {error && (
-                    <div style={{
-                        background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
-                        borderRadius: 'var(--radius-sm)', padding: '10px 14px', marginBottom: 20,
-                        fontSize: '0.85rem', color: 'var(--accent-red)'
-                    }}>{error}</div>
+                    <div className="mb-5 flex items-center gap-2 rounded-lg border border-error/30 bg-error/10 px-4 py-2.5 text-sm text-error">
+                        <AlertCircle className="h-4 w-4 shrink-0" />
+                        {error}
+                    </div>
                 )}
 
-                <form onSubmit={handleSubmit}>
-                    <div className="form-group">
-                        <label className="label">Full Name</label>
-                        <input className="input" value={form.name}
-                            onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Dr. John Smith" required />
+                <form onSubmit={handleSubmit} className="space-y-4 text-left">
+                    <div>
+                        <label className="mb-1.5 block text-xs font-medium text-text-secondary">
+                            Full Name
+                        </label>
+                        <input
+                            value={form.name}
+                            onChange={(e) => update('name', e.target.value)}
+                            placeholder="Dr. John Smith"
+                            required
+                            className="w-full rounded-lg border border-border-subtle bg-bg-secondary px-3.5 py-2.5 text-sm text-text-primary placeholder:text-text-muted transition-colors focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                        />
                     </div>
-                    <div className="form-group">
-                        <label className="label">Email</label>
-                        <input className="input" type="email" value={form.email}
-                            onChange={e => setForm({ ...form, email: e.target.value })} placeholder="doctor@hospital.com" required />
+                    <div>
+                        <label className="mb-1.5 block text-xs font-medium text-text-secondary">
+                            Email
+                        </label>
+                        <input
+                            type="email"
+                            value={form.email}
+                            onChange={(e) => update('email', e.target.value)}
+                            placeholder="doctor@hospital.com"
+                            required
+                            className="w-full rounded-lg border border-border-subtle bg-bg-secondary px-3.5 py-2.5 text-sm text-text-primary placeholder:text-text-muted transition-colors focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                        />
                     </div>
-                    <div className="form-group">
-                        <label className="label">Password</label>
-                        <input className="input" type="password" value={form.password}
-                            onChange={e => setForm({ ...form, password: e.target.value })} placeholder="••••••••" required />
+                    <div>
+                        <label className="mb-1.5 block text-xs font-medium text-text-secondary">
+                            Password
+                        </label>
+                        <input
+                            type="password"
+                            value={form.password}
+                            onChange={(e) => update('password', e.target.value)}
+                            placeholder="••••••••"
+                            required
+                            className="w-full rounded-lg border border-border-subtle bg-bg-secondary px-3.5 py-2.5 text-sm text-text-primary placeholder:text-text-muted transition-colors focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                        />
                     </div>
-                    <div className="form-group">
-                        <label className="label">Role</label>
-                        <select className="input select" value={form.role}
-                            onChange={e => setForm({ ...form, role: e.target.value })}>
+                    <div>
+                        <label className="mb-1.5 block text-xs font-medium text-text-secondary">
+                            Role
+                        </label>
+                        <select
+                            value={form.role}
+                            onChange={(e) => update('role', e.target.value)}
+                            className="w-full appearance-none rounded-lg border border-border-subtle bg-bg-secondary px-3.5 py-2.5 text-sm text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                        >
                             <option value="doctor">Doctor</option>
                             <option value="caregiver">Caregiver</option>
                         </select>
                     </div>
-                    <button className="btn btn-primary btn-lg" type="submit" disabled={loading}
-                        style={{ width: '100%', marginTop: 8 }}>
-                        {loading ? 'Creating...' : 'Create Account'}
+                    <button
+                        type="submit"
+                        disabled={loading}
+                        className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-bg-primary transition-all hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                        {loading ? 'Creating…' : 'Create Account'}
+                        {!loading && <ArrowRight className="h-4 w-4" />}
                     </button>
                 </form>
 
-                <p style={{ marginTop: 24, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                <p className="mt-6 text-sm text-text-muted">
                     Already have an account?{' '}
-                    <Link href="/login" style={{ color: 'var(--accent-cyan)', fontWeight: 500 }}>Sign In</Link>
+                    <Link href="/login" className="font-medium text-accent hover:text-accent-hover transition-colors">
+                        Sign In
+                    </Link>
                 </p>
             </div>
         </div>

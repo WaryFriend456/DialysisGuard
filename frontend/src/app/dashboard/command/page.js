@@ -1,78 +1,66 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import Sidebar from '@/components/Sidebar';
+import PageShell from '@/components/PageShell';
 import { useAuth } from '@/contexts/AuthContext';
 import { patients as patientsApi } from '@/lib/api';
+import { cn } from '@/lib/utils';
+import { MonitorDot, Users, Loader2, Monitor } from 'lucide-react';
+
+const SEV_STYLE = { Mild: 'badge-risk-low', Moderate: 'badge-risk-moderate', Severe: 'badge-risk-high', Critical: 'badge-risk-critical' };
 
 export default function CommandCenter() {
     const { user, loading } = useAuth();
     const router = useRouter();
     const [patientList, setPatientList] = useState([]);
 
-    useEffect(() => {
-        if (!loading && !user) router.push('/login');
-    }, [user, loading, router]);
+    useEffect(() => { if (!loading && !user) router.push('/login'); }, [user, loading, router]);
+    useEffect(() => { if (user) patientsApi.list('limit=50').then(r => setPatientList(r.patients || [])).catch(() => { }); }, [user]);
 
-    useEffect(() => {
-        if (user) {
-            patientsApi.list('limit=50').then(res => setPatientList(res.patients || [])).catch(() => { });
-        }
-    }, [user]);
-
-    if (loading || !user) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><div className="spinner" /></div>;
+    if (loading || !user) return <div className="flex min-h-screen items-center justify-center bg-bg-primary"><Loader2 className="h-8 w-8 animate-spin text-accent" /></div>;
 
     return (
-        <div className="page-container">
-            <Sidebar />
-            <div className="main-content">
-                <div style={{ marginBottom: 24 }}>
-                    <h1 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        🖥️ Multi-Patient Command Center
-                    </h1>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: 4 }}>
-                        Overview of all patients — click any card to start monitoring
-                    </p>
-                </div>
-
-                {patientList.length === 0 ? (
-                    <div className="card" style={{ textAlign: 'center', padding: 60 }}>
-                        <p style={{ color: 'var(--text-muted)' }}>No patients available. Add patients first.</p>
-                        <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => router.push('/patients')}>
-                            Go to Patients
-                        </button>
-                    </div>
-                ) : (
-                    <div className="patient-grid">
-                        {patientList.map(p => {
-                            const sevClass = (p.disease_severity || 'moderate').toLowerCase();
-                            return (
-                                <div key={p.id} className={`patient-grid-cell risk-${sevClass}`}
-                                    onClick={() => router.push(`/monitor?patient=${p.id}`)}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                                        <h3 style={{ fontSize: '1rem' }}>{p.name || `Patient #${p.id?.slice(0, 6)}`}</h3>
-                                        <span className={`badge badge-${sevClass}`}>{p.disease_severity || 'Moderate'}</span>
-                                    </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                                        <span>Age: {p.age}</span>
-                                        <span>Gender: {p.gender}</span>
-                                        <span>Weight: {p.weight} kg</span>
-                                        <span>Duration: {p.dialysis_duration}h</span>
-                                    </div>
-                                    <div style={{ marginTop: 12, display: 'flex', gap: 6 }}>
-                                        {p.diabetes && <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: 'rgba(245,158,11,0.15)', borderRadius: 10, color: 'var(--accent-yellow)' }}>Diabetes</span>}
-                                        {p.hypertension && <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: 'rgba(239,68,68,0.15)', borderRadius: 10, color: 'var(--accent-red)' }}>Hypertension</span>}
-                                    </div>
-                                    <button className="btn btn-primary btn-sm" style={{ width: '100%', marginTop: 14 }}
-                                        onClick={(e) => { e.stopPropagation(); router.push(`/monitor?patient=${p.id}`); }}>
-                                        🔴 Start Monitor
-                                    </button>
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
+        <PageShell>
+            <div className="mb-6">
+                <h1 className="flex items-center gap-3 text-2xl font-bold text-text-primary">
+                    <MonitorDot className="h-6 w-6 text-accent" /> Multi-Patient Command Center
+                </h1>
+                <p className="mt-1 text-sm text-text-muted">Overview of all patients — click any card to start monitoring</p>
             </div>
-        </div>
+
+            {patientList.length === 0 ? (
+                <div className="card flex flex-col items-center py-16 text-center">
+                    <Users className="mb-3 h-12 w-12 text-text-muted/40" />
+                    <p className="text-text-muted">No patients available. Add patients first.</p>
+                    <button onClick={() => router.push('/patients')} className="mt-4 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg-primary hover:bg-accent-hover cursor-pointer">Go to Patients</button>
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                    {patientList.map((p) => {
+                        const sev = p.disease_severity || 'Moderate';
+                        return (
+                            <div key={p.id} className="card card-hover cursor-pointer p-5" onClick={() => router.push(`/monitor?patient=${p.id}`)}>
+                                <div className="mb-3 flex items-start justify-between">
+                                    <h3 className="text-sm font-semibold text-text-primary">{p.name || `Patient #${p.id?.slice(0, 6)}`}</h3>
+                                    <span className={cn('rounded-md px-2 py-0.5 text-[11px] font-semibold', SEV_STYLE[sev] || SEV_STYLE.Moderate)}>{sev}</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-1 text-xs text-text-secondary">
+                                    <span>Age: {p.age}</span><span>Gender: {p.gender}</span>
+                                    <span>Weight: {p.weight} kg</span><span>Duration: {p.dialysis_duration}h</span>
+                                </div>
+                                <div className="mt-3 flex gap-2">
+                                    {p.diabetes && <span className="rounded-full bg-risk-moderate-bg px-2 py-0.5 text-[10px] font-medium text-risk-moderate">Diabetes</span>}
+                                    {p.hypertension && <span className="rounded-full bg-risk-critical-bg px-2 py-0.5 text-[10px] font-medium text-risk-critical">Hypertension</span>}
+                                </div>
+                                <button className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-accent/10 py-2 text-xs font-medium text-accent hover:bg-accent/20 cursor-pointer"
+                                    onClick={(e) => { e.stopPropagation(); router.push(`/monitor?patient=${p.id}`); }}>
+                                    <Monitor className="h-3.5 w-3.5" /> Start Monitor
+                                </button>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </PageShell>
     );
 }
