@@ -1,4 +1,4 @@
-# DialysisGuard: AI-Driven Real-Time Monitoring System — Implementation Plan
+# DialysisGuard: AI-Driven Real-Time Monitoring System
 
 ## Overview
 
@@ -15,29 +15,13 @@ The system features:
 
 ---
 
-## User Review Required
-
-> [!IMPORTANT]
-> **FastAPI over Flask**: FastAPI provides native async/await (ideal for WebSocket streaming), automatic OpenAPI docs, Pydantic validation, and better performance. The ML code integrates equally well since it's all Python.
-
-> [!IMPORTANT]
-> **Training Data**: The GRU model is trained on `synthetic_hemodialysis_timeseries.csv` — 5000 patients, each with 30 time steps at 8-minute intervals (0-232 minutes), 26 features, and an `Is_Unstable` flag. This is real sequential data, perfect for GRU training.
-
-> [!IMPORTANT]
-> **Simulation Engine**: Since the CSV is used for training, simulation generates **fresh random data** in real-time. A physiological simulation engine creates clinically plausible vital sign trajectories based on patient baseline data, incorporating realistic drift patterns, noise, and potential deterioration events. This generates data the model has NEVER seen — making simulation meaningful.
-
-> [!IMPORTANT]
-> **XAI Scope**: 7 pillars — SHAP attributions, attention-augmented GRU, counterfactual/What-If analysis, MC Dropout uncertainty, natural language explanations, temporal heatmaps, and model transparency cards.
-
----
-
-## Proposed Changes
+## Project Architecture & Components
 
 ### Component 1: Project Structure
 
-```
-G:\DialysisGuard\
-├── final.ipynb                          # Existing notebook (reference)
+```text
+.
+├── final.ipynb                          # Reference notebook
 ├── Hemodialysis_Data 2.csv              # Original dataset (reference)
 ├── synthetic_hemodialysis_timeseries.csv # Training dataset
 ├── backend/
@@ -52,69 +36,52 @@ G:\DialysisGuard\
 │   │   ├── auth.py                      # Login/register
 │   │   ├── patients.py                  # Patient CRUD
 │   │   ├── sessions.py                  # Session management
-│   │   ├── predictions.py              # Model predictions
+│   │   ├── predictions.py               # Model predictions
 │   │   ├── alerts.py                    # Alert endpoints
-│   │   └── explanations.py             # XAI endpoints
+│   │   └── explanations.py              # XAI endpoints
 │   ├── services/
-│   │   ├── ml_service.py               # GRU model inference + MC Dropout
-│   │   ├── xai_service.py              # Explainable AI service
-│   │   ├── simulation_service.py       # Physiological simulation engine
-│   │   └── alert_service.py            # Alert + escalation logic
+│   │   ├── ml_service.py                # GRU model inference + MC Dropout
+│   │   ├── xai_service.py               # Explainable AI service
+│   │   ├── simulation_service.py        # Physiological simulation engine
+│   │   └── alert_service.py             # Alert + escalation logic
 │   ├── ml/
-│   │   ├── train_model.py              # Model training script
-│   │   ├── attention_gru.py            # Attention-augmented GRU architecture
-│   │   ├── gru_model.h5                # Trained model (generated)
-│   │   ├── scaler.pkl                  # Fitted scaler (generated)
-│   │   ├── label_encoders.pkl          # Label encoders (generated)
-│   │   ├── feature_config.json         # Feature names/ranges (generated)
-│   │   └── model_card.json             # Model transparency card
+│   │   ├── train_model.py               # Model training script
+│   │   ├── attention_gru.py             # Attention-augmented GRU architecture
+│   │   ├── gru_model.h5                 # Trained model (legacy format)
+│   │   ├── gru_model.keras              # Trained model (Keras v3 format)
+│   │   ├── best_weights.weights.h5      # Training checkpoint weights
+│   │   ├── scaler.pkl                   # Fitted scaler
+│   │   ├── label_encoders.pkl           # Label encoders
+│   │   ├── feature_config.json          # Feature names/ranges
+│   │   └── model_card.json              # Model transparency card
 │   └── websocket/
 │       └── realtime.py                  # WebSocket for real-time streaming
-├── frontend/
-│   ├── src/
-│   │   ├── app/
-│   │   │   ├── layout.js / globals.css # Dark theme
-│   │   │   ├── login/ & register/      # Auth pages
-│   │   │   ├── dashboard/
-│   │   │   │   ├── doctor/page.js      # Doctor dashboard
-│   │   │   │   ├── caregiver/page.js   # Caregiver dashboard
-│   │   │   │   └── command/page.js     # [NEW] Multi-patient command center
-│   │   │   ├── patients/
-│   │   │   │   ├── page.js             # Patient list
-│   │   │   │   ├── new/page.js         # Add patient
-│   │   │   │   └── [id]/
-│   │   │   │       ├── page.js         # Patient detail
-│   │   │   │       ├── monitor/page.js # Real-time monitoring
-│   │   │   │       ├── explain/page.js # XAI dashboard
-│   │   │   │       └── history/page.js # [NEW] Session comparison
-│   │   │   ├── alerts/page.js
-│   │   │   └── model-info/page.js      # Model transparency
-│   │   ├── components/
-│   │   │   ├── Navbar.js, Sidebar.js
-│   │   │   ├── VitalChart.js, RiskGauge.js, AlertCard.js
-│   │   │   ├── PatientCard.js, SessionTimeline.js, StatsWidget.js
-│   │   │   ├── SHAPWaterfall.js        # XAI: SHAP chart
-│   │   │   ├── AttentionHeatmap.js     # XAI: Temporal heatmap
-│   │   │   ├── WhatIfSimulator.js      # XAI: What-If tool
-│   │   │   ├── ConfidenceBand.js       # XAI: Uncertainty band
-│   │   │   ├── NLExplanation.js        # XAI: Natural language
-│   │   │   ├── ModelCard.js            # XAI: Model card
-│   │   │   ├── RiskForecast.js         # [NEW] Predictive risk chart
-│   │   │   ├── AnomalyMarker.js        # [NEW] Anomaly highlights
-│   │   │   ├── SessionComparison.js    # [NEW] Session comparison
-│   │   │   ├── RiskTrend.js            # [NEW] Risk trend arrow
-│   │   │   └── MultiPatientGrid.js     # [NEW] Command center grid
-│   │   ├── contexts/, hooks/, lib/
-│   │   └── ...
-│   └── ...
-└── .agent/workflows/
+└── frontend/
+    ├── package.json
+    ├── next.config.mjs
+    ├── src/
+    │   ├── app/
+    │   │   ├── layout.js / globals.css  # Dark theme
+    │   │   ├── login/ & register/       # Auth pages
+    │   │   ├── dashboard/
+    │   │   │   ├── doctor/page.js       # Doctor dashboard
+    │   │   │   ├── caregiver/page.js    # Caregiver dashboard
+    │   │   │   └── command/page.js      # Multi-patient command center
+    │   │   ├── patients/page.js         # Patient management (consolidated)
+    │   │   ├── monitor/page.js          # Real-time monitoring & XAI dashboard (consolidated)
+    │   │   ├── alerts/page.js           # Alerts dashboard
+    │   │   └── model-info/page.js       # Model transparency
+    │   └── components/
+    │       ├── ErrorBoundary.js         # Error handling wrapper
+    │       ├── PageShell.js             # Shared page container
+    │       ├── Sidebar.js               # Navigation menu
+    │       └── ui/
+    │           └── HypnoRing.js         # Custom loading animation
 ```
 
 ---
 
-### Component 2: ML Model Training (on `synthetic_hemodialysis_timeseries.csv`)
-
-#### [NEW] [train_model.py](file:///G:/DialysisGuard/backend/ml/train_model.py)
+### Component 2: ML Model Training
 
 **Training Data**: `synthetic_hemodialysis_timeseries.csv` — 5000 patients, 30 time steps each at 8-min intervals
 
@@ -123,12 +90,12 @@ G:\DialysisGuard\
 - **Temporal features** (varying per time step): Current_BP, Current_HR, Time_Minutes
 - **Engineered features**: BP rate-of-change, HR rate-of-change, BP deviation from baseline, cumulative BP volatility
 - **Target**: `Is_Unstable` (binary, per time step)
-- Encode categoricals with LabelEncoder, scale numericals with StandardScaler
-- Reshape into sequences: each patient = 1 sequence of 30 time steps × N features
+- Categoricals encoded with LabelEncoder, numericals scaled with StandardScaler.
+- Reshaped into sequences: each patient = 1 sequence of 30 time steps × N features
 - Train/val/test split by Patient_ID (70/15/15) to prevent data leakage
 
-**Model**: Attention-Augmented GRU (see [attention_gru.py](file:///G:/DialysisGuard/backend/ml/attention_gru.py))
-```
+**Model**: Attention-Augmented GRU (`backend/ml/attention_gru.py`)
+```text
 Input (30 × N_features) →
 GRU(128, return_sequences=True) → BatchNorm →
 GRU(64, return_sequences=True) → BatchNorm →
@@ -146,8 +113,8 @@ Dense(1, sigmoid)
 - `feature_config.json` — feature names, types, and clinical ranges
 - `model_card.json` — performance metrics, subgroup analysis
 
-#### [NEW] [ml_service.py](file:///G:/DialysisGuard/backend/services/ml_service.py)
-- Load saved model/scaler/encoders at FastAPI startup
+**Inference (`backend/services/ml_service.py`)**:
+- Loads saved model/scaler/encoders at FastAPI startup
 - `predict(sequence)` → risk probability
 - `predict_with_uncertainty(sequence, n=20)` → MC Dropout confidence interval
 - `get_attention_weights(sequence)` → temporal attention from the attention layer
@@ -156,9 +123,9 @@ Dense(1, sigmoid)
 
 ### Component 3: Physiological Simulation Engine
 
-#### [NEW] [simulation_service.py](file:///G:/DialysisGuard/backend/services/simulation_service.py)
+**Implementation**: `backend/services/simulation_service.py`
 
-Since the training CSV is used for training, the simulation generates **fresh, never-seen data** for monitoring:
+Since the training CSV is static, the simulation generates **fresh, never-seen data** for active monitoring:
 
 **How it works**:
 1. **Patient baseline** → from the patient's stored demographics/clinical data
@@ -204,7 +171,7 @@ class PhysiologicalSimulator:
 
 ### Component 4: FastAPI Backend
 
-#### [NEW] [main.py](file:///G:/DialysisGuard/backend/main.py)
+**Implementation**: `backend/main.py`
 - FastAPI app with CORS, JWT auth middleware
 - Auto-generated OpenAPI docs at `/docs`
 - Lifespan handler to load ML model at startup
@@ -233,7 +200,7 @@ class PhysiologicalSimulator:
 | `/` | POST | Start session (triggers simulation) |
 | `/{id}` | GET | Session details + time-series |
 | `/{id}/stop` | POST | Stop session |
-| `/{id}/report` | GET | [NEW] Auto-generated session report |
+| `/{id}/report` | GET | Auto-generated session report |
 | `/patient/{patient_id}` | GET | Patient's session history |
 
 **Predictions** (`/api/predict/`)
@@ -263,7 +230,7 @@ class PhysiologicalSimulator:
 
 ### Component 5: WebSocket Real-Time Streaming
 
-#### [NEW] [realtime.py](file:///G:/DialysisGuard/backend/websocket/realtime.py)
+**Implementation**: `backend/websocket/realtime.py`
 - FastAPI WebSocket endpoint at `/ws/monitor/{session_id}`
 - On connect: simulation engine begins generating vital data
 - **Every 2-3 seconds** emits a JSON payload:
@@ -282,7 +249,7 @@ class PhysiologicalSimulator:
       {"name": "BP Drop", "contribution": 0.18, "direction": "risk_increasing"},
       {"name": "Fluid Rate", "contribution": 0.12, "direction": "risk_increasing"}
     ],
-    "attention_weights": [0.02, 0.03, 0.04, 0.05, 0.08, 0.12, ...],
+    "attention_weights": [0.02, 0.03, 0.04, 0.05, 0.08, 0.12],
     "nl_explanation": "Risk is HIGH primarily due to significant blood pressure drop...",
     "risk_trend": "increasing",
     "risk_forecast_5step": [0.72, 0.75, 0.78, 0.81, 0.84]
@@ -301,7 +268,7 @@ class PhysiologicalSimulator:
 ### Component 6: Frontend — Next.js Application
 
 #### Theme & Design
-- Dark theme: navy/charcoal (#0a0e17, #111827), cyan accents (#06b6d4), red alerts (#ef4444)
+- Dark theme: navy/charcoal (`#0a0e17`, `#111827`), cyan accents (`#06b6d4`), red alerts (`#ef4444`)
 - Google Font: Inter
 - Glassmorphism cards, micro-animations, smooth transitions
 
@@ -315,7 +282,7 @@ class PhysiologicalSimulator:
 
 **Patient Management** — Searchable list, comprehensive entry form, full patient profile
 
-**Real-Time Monitoring** (core simulation page):
+**Real-Time Monitoring & Explainability Dashboard** (`/monitor`):
 - Live vital sign charts (BP, HR updating in real-time)
 - Risk Gauge with Confidence Band (e.g., "72% ± 6%")
 - **Risk Trend Arrow** — ↑ increasing, → stable, ↓ decreasing
@@ -325,22 +292,11 @@ class PhysiologicalSimulator:
 - Natural language explanation panel
 - **Audio alert** — browser notification sound on CRITICAL risk
 - Alert banner with explanation of WHY
-- "Explain This" button → opens full XAI dashboard
-- Control panel: Start/Stop/Pause
+- **Integrated XAI Panels**: Includes SHAP Waterfall charts, What-If Simulator + Counterfactual suggestions, Temporal Attention Heatmap, and MC Dropout Confidence Distribution embedded directly in the monitoring session.
 
-**Explainability Dashboard** (`/patients/[id]/explain`):
-| Panel | Content |
-|---|---|
-| Top-Left | SHAP Waterfall Chart |
-| Top-Right | What-If Simulator + Counterfactual suggestions |
-| Bottom-Left | Temporal Attention Heatmap (2D: time × features) |
-| Bottom-Right | MC Dropout Confidence Distribution |
-| Full-Width | Natural Language Explanation |
-
-**Session History & Comparison** (`/patients/[id]/history`):
-- Timeline of past sessions with risk curves
-- Side-by-side comparison of any two sessions
-- Trend analysis across sessions
+**Session History & Comparison**:
+- Currently consolidated into patient profile/monitoring views.
+- Trend analysis across past sessions for specific patients.
 
 **Multi-Patient Command Center** (`/dashboard/command`):
 - Grid view of ALL active sessions simultaneously
@@ -562,26 +518,26 @@ sequenceDiagram
 
 ---
 
-## Verification Plan
+## Testing & Validation
 
 ### Automated Tests
 ```bash
 # Backend
-cd G:\DialysisGuard\backend
+cd backend
 pip install -r requirements.txt
 pytest tests/ -v
 ```
 - Auth (register, login, token)
 - Patient CRUD
 - Prediction + risk assessment
-- **Simulation engine generates plausible vitals (within clinical ranges)**
-- **SHAP returns correct dimensions, base + contributions ≈ prediction**
-- **Attention weights sum to ~1.0**
-- **MC Dropout produces variance across passes**
-- **What-If correctly reflects parameter modifications**
-- **Counterfactual suggestions within clinical ranges**
-- **Anomaly detection flags known outliers**
-- **Alert escalation fires after timeout**
+- Simulation engine generates plausible vitals (within clinical ranges)
+- SHAP returns correct dimensions, base + contributions ≈ prediction
+- Attention weights sum to ~1.0
+- MC Dropout produces variance across passes
+- What-If correctly reflects parameter modifications
+- Counterfactual suggestions within clinical ranges
+- Anomaly detection flags known outliers
+- Alert escalation fires after timeout
 
 ### Model Validation
 ```bash
@@ -591,21 +547,23 @@ python backend/ml/train_model.py --validate
 - Saved model loads and predicts
 - Attention layer outputs valid weights
 
-### Frontend
+### Frontend Initialization
 ```bash
-cd G:\DialysisGuard\frontend && npm run build
+cd frontend
+npm run build
+npm start
 ```
 
-### Manual Testing
-1. Login/register flow
-2. Patient entry with full clinical fields
-3. **Start simulation → verify unique vital trajectories each run**
-4. **Verify risk gauge, confidence band, trend arrow, and forecast update live**
-5. **Verify SHAP panel, NL explanation, and anomaly markers update**
-6. **Verify audio alert on CRITICAL events**
-7. **Verify alert escalation (wait for timeout)**
-8. **Open Explainability Dashboard → test What-If sliders and counterfactual**
-9. **Session comparison — run 2 sessions for same patient, compare**
-10. **Multi-patient command center — run 3+ sessions, verify grid sorting**
-11. **Stop session → verify auto-report generation**
-12. Role-based access (doctor vs caregiver)
+### Manual Testing Runbook
+1. **Login/register flow**: Authenticate via JWT.
+2. **Patient entry**: Create test patients with varied clinical fields.
+3. **Start simulation**: Verify unique vital trajectories generate per run.
+4. **Real-time updates**: Ensure risk gauge, confidence band, trend arrow, and forecast update correctly.
+5. **XAI Integration**: Verify SHAP panel, NL explanation, and anomaly markers react dynamically.
+6. **Critical pathways**: Confirm audio alert sounds on CRITICAL events.
+7. **Simulation constraints**: Wait for timeout and observe alert escalation.
+8. **Explainability Dashboard**: Open the full dashboard, test What-If sliders, and generate counterfactuals.
+9. **Session comparison**: Run 2 separate sessions for the same patient and compare results side-by-side.
+10. **Command Center**: Open the multi-patient command center, start 3+ sessions, verify priority grid sorting.
+11. **Report Generation**: Stop a session and verify auto-generated endpoint report payloads.
+12. **Roles**: Test difference between restricted `caregiver` and full `doctor` access.
