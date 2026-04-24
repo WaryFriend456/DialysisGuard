@@ -1,29 +1,31 @@
 import './globals.css';
+import { Inter, JetBrains_Mono } from 'next/font/google';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { MonitoringProvider } from '@/contexts/MonitoringContext';
+
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-ui',
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  variable: '--font-code',
+});
 
 export const metadata = {
-  title: 'DialysisGuard — AI-Driven Hemodialysis Monitoring',
+  title: 'DialysisGuard - AI-Driven Hemodialysis Monitoring',
   description:
-    'Real-time AI monitoring and adverse event prediction for hemodialysis with Explainable AI',
+    'Real-time AI monitoring and adverse event prediction for hemodialysis with explainable AI',
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en" className="dark">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          rel="preconnect"
-          href="https://fonts.gstatic.com"
-          crossOrigin="anonymous"
-        />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
-          rel="stylesheet"
-        />
-      </head>
-      <body>
-        <AuthProvider>{children}</AuthProvider>
+      <body className={`${inter.variable} ${jetbrainsMono.variable}`}>
+        <AuthProvider>
+          <MonitoringProvider>{children}</MonitoringProvider>
+        </AuthProvider>
       </body>
     </html>
   );

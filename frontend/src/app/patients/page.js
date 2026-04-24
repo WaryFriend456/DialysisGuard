@@ -1,74 +1,113 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import PageShell from '@/components/PageShell';
-import { useAuth } from '@/contexts/AuthContext';
-import { patients as patientsApi } from '@/lib/api';
-import { cn } from '@/lib/utils';
-import {
-    Search, UserPlus, Activity, Clock, BarChart3, X,
-    Loader2, Users, AlertCircle, Monitor,
-} from 'lucide-react';
 
-const SEVERITY_STYLE = {
+import { Suspense, useCallback, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import {
+    Activity,
+    AlertCircle,
+    Clock3,
+    Loader2,
+    MonitorDot,
+    Plus,
+    Search,
+    UserRound,
+    X,
+} from 'lucide-react';
+import PageShell from '@/components/PageShell';
+import { patients as patientsApi } from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
+import { cn } from '@/lib/utils';
+
+const INPUT_CLS = 'w-full rounded-2xl border border-border-subtle bg-bg-secondary px-4 py-3 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none';
+const severityClass = {
     Mild: 'badge-risk-low',
     Moderate: 'badge-risk-moderate',
     Severe: 'badge-risk-high',
     Critical: 'badge-risk-critical',
 };
 
-const INPUT_CLS = 'w-full rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-sm text-text-primary placeholder:text-text-muted transition-colors focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30';
+const defaultForm = {
+    name: '',
+    age: 55,
+    gender: 'Male',
+    weight: 75,
+    diabetes: false,
+    hypertension: false,
+    kidney_failure_cause: 'Other',
+    creatinine: 5.0,
+    urea: 50.0,
+    potassium: 4.5,
+    hemoglobin: 11.0,
+    hematocrit: 33.0,
+    albumin: 3.8,
+    dialysis_duration: 4.0,
+    dialysis_frequency: 3,
+    dialysate_composition: 'Standard',
+    vascular_access_type: 'Fistula',
+    dialyzer_type: 'High-flux',
+    urine_output: 500,
+    dry_weight: 70.0,
+    fluid_removal_rate: 350,
+    disease_severity: 'Moderate',
+};
 
-export default function PatientsPage() {
+function PatientsContent() {
     const { user, loading: authLoading } = useAuth();
     const router = useRouter();
+    const searchParams = useSearchParams();
     const [patients, setPatients] = useState([]);
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
     const [showAddModal, setShowAddModal] = useState(false);
     const [error, setError] = useState('');
-    const [formData, setFormData] = useState({
-        name: '', age: 55, gender: 'Male', weight: 75, diabetes: false, hypertension: false,
-        kidney_failure_cause: 'Other', creatinine: 5.0, urea: 50.0, potassium: 4.5,
-        hemoglobin: 11.0, hematocrit: 33.0, albumin: 3.8, dialysis_duration: 4.0,
-        dialysis_frequency: 3, dialysate_composition: 'Standard', vascular_access_type: 'Fistula',
-        dialyzer_type: 'High-flux', urine_output: 500, dry_weight: 70.0,
-        fluid_removal_rate: 350, disease_severity: 'Moderate',
-    });
+    const [formData, setFormData] = useState(defaultForm);
 
-    useEffect(() => {
-        if (!authLoading && !user) router.push('/login');
-    }, [user, authLoading, router]);
-
-    useEffect(() => {
-        if (user) loadPatients();
-    }, [user, search]);
-
-    const loadPatients = async () => {
+    const loadPatients = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await patientsApi.list(`search=${search}&limit=50`);
+            const res = await patientsApi.list(`search=${encodeURIComponent(search)}&limit=50`);
             setPatients(res.patients || []);
-        } catch (e) {
-            console.error(e);
+        } catch (err) {
+            setError(err.message || 'Unable to load patients');
         } finally {
             setLoading(false);
         }
+    }, [search]);
+
+    useEffect(() => {
+        if (!authLoading && !user) {
+            router.push('/login');
+        }
+    }, [authLoading, router, user]);
+
+    useEffect(() => {
+        if (user) {
+            loadPatients();
+        }
+    }, [loadPatients, user]);
+
+    useEffect(() => {
+        if (searchParams.get('action') === 'add') {
+            setShowAddModal(true);
+        }
+    }, [searchParams]);
+
+    const update = (key, value) => {
+        setFormData((current) => ({ ...current, [key]: value }));
     };
 
-    const handleAdd = async (e) => {
-        e.preventDefault();
+    const handleAdd = async (event) => {
+        event.preventDefault();
         setError('');
         try {
             await patientsApi.create(formData);
+            setFormData(defaultForm);
             setShowAddModal(false);
-            loadPatients();
+            await loadPatients();
         } catch (err) {
-            setError(err.message);
+            setError(err.message || 'Unable to create patient');
         }
     };
-
-    const update = (key, val) => setFormData((f) => ({ ...f, [key]: val }));
 
     if (authLoading || !user) {
         return (
@@ -80,217 +119,220 @@ export default function PatientsPage() {
 
     return (
         <PageShell>
-            {/* Header */}
-            <div className="mb-6 flex items-center justify-between">
-                <div>
-                    <h1 className="text-2xl font-bold text-text-primary">Patients</h1>
-                    <p className="mt-1 text-sm text-text-muted">
-                        {patients.length} patient{patients.length !== 1 ? 's' : ''} registered
-                    </p>
+            <section className="card p-6">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                        <p className="text-xs uppercase tracking-[0.2em] text-text-muted">Patient registry</p>
+                        <h2 className="mt-2 text-3xl font-semibold text-text-primary">Clinical profiles and monitoring entry point</h2>
+                        <p className="mt-2 max-w-2xl text-sm text-text-secondary">
+                            Every patient card now routes to a real detail page, with history and monitoring available from there.
+                        </p>
+                    </div>
+                    <button
+                        onClick={() => setShowAddModal(true)}
+                        className="inline-flex items-center gap-2 rounded-2xl bg-accent px-5 py-3 text-sm font-semibold text-bg-primary"
+                    >
+                        <Plus className="h-4 w-4" />
+                        Add patient
+                    </button>
                 </div>
-                <button
-                    onClick={() => setShowAddModal(true)}
-                    className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg-primary transition-all hover:bg-accent-hover cursor-pointer"
-                >
-                    <UserPlus className="h-4 w-4" />
-                    Add Patient
-                </button>
-            </div>
 
-            {/* Search */}
-            <div className="relative mb-6 max-w-md">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-                <input
-                    placeholder="Search patients…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className={cn(INPUT_CLS, 'pl-9')}
-                />
-            </div>
+                <div className="mt-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <label className="relative block w-full max-w-xl">
+                        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+                        <input
+                            value={search}
+                            onChange={(event) => setSearch(event.target.value)}
+                            placeholder="Search by patient name or demographic"
+                            className={cn(INPUT_CLS, 'pl-11')}
+                        />
+                    </label>
+                    <p className="text-sm text-text-secondary">{patients.length} patient records loaded</p>
+                </div>
+            </section>
 
-            {/* Content */}
-            {loading ? (
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    {[...Array(6)].map((_, i) => (
-                        <div key={i} className="skeleton h-44 rounded-xl" />
-                    ))}
-                </div>
-            ) : patients.length === 0 ? (
-                <div className="card flex flex-col items-center py-16 text-center">
-                    <Users className="mb-3 h-12 w-12 text-text-muted/40" />
-                    <p className="text-text-muted">No patients found. Add your first patient to get started.</p>
-                </div>
-            ) : (
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    {patients.map((p) => (
-                        <div
-                            key={p.id}
-                            className="card card-hover cursor-pointer p-5"
-                            onClick={() => router.push(`/monitor?patient=${p.id}`)}
-                        >
-                            <div className="flex items-start justify-between">
-                                <div>
-                                    <h3 className="text-sm font-semibold text-text-primary">
-                                        {p.name || `Patient #${p.id?.slice(0, 6)}`}
-                                    </h3>
-                                    <p className="mt-0.5 text-xs text-text-muted">
-                                        {p.age} yrs · {p.gender} · {p.weight} kg
-                                    </p>
+            <section className="mt-6">
+                {loading ? (
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        {Array.from({ length: 6 }).map((_, index) => (
+                            <div key={index} className="skeleton h-56 rounded-3xl" />
+                        ))}
+                    </div>
+                ) : patients.length === 0 ? (
+                    <div className="card flex flex-col items-center py-16 text-center">
+                        <UserRound className="mb-4 h-12 w-12 text-text-muted/40" />
+                        <p className="text-lg font-medium text-text-primary">No patients found</p>
+                        <p className="mt-2 max-w-md text-sm text-text-secondary">Create the first patient profile to unlock monitoring, history, and alert flows.</p>
+                    </div>
+                ) : (
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        {patients.map((patient) => (
+                            <article
+                                key={patient.id}
+                                className="card card-hover cursor-pointer p-6"
+                                onClick={() => router.push(`/patients/${patient.id}`)}
+                            >
+                                <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-text-primary">{patient.name || `Patient ${patient.id?.slice(0, 6)}`}</h3>
+                                        <p className="mt-1 text-sm text-text-secondary">{patient.age} years · {patient.gender} · {patient.weight} kg</p>
+                                    </div>
+                                    <span className={cn('rounded-full px-3 py-1 text-xs font-semibold', severityClass[patient.disease_severity] || severityClass.Moderate)}>
+                                        {patient.disease_severity || 'Moderate'}
+                                    </span>
                                 </div>
-                                <span className={cn(
-                                    'rounded-md px-2 py-0.5 text-[11px] font-semibold',
-                                    SEVERITY_STYLE[p.disease_severity] || SEVERITY_STYLE.Moderate
-                                )}>
-                                    {p.disease_severity || 'Moderate'}
-                                </span>
-                            </div>
 
-                            <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-text-secondary">
-                                <span className="flex items-center gap-1.5">
-                                    <Activity className="h-3 w-3 text-text-muted" />
-                                    {p.vascular_access_type}
-                                </span>
-                                <span className="flex items-center gap-1.5">
-                                    <BarChart3 className="h-3 w-3 text-text-muted" />
-                                    {p.dialyzer_type}
-                                </span>
-                                <span className="flex items-center gap-1.5">
-                                    <Clock className="h-3 w-3 text-text-muted" />
-                                    {p.dialysis_duration}h
-                                </span>
-                                <span className="flex items-center gap-1.5">
-                                    <span className="text-text-muted text-[10px]">×</span>
-                                    {p.dialysis_frequency}x/wk
-                                </span>
-                            </div>
+                                <div className="mt-5 grid grid-cols-2 gap-3 text-sm text-text-secondary">
+                                    <div className="rounded-2xl border border-border-subtle bg-surface px-4 py-3">
+                                        <p className="text-xs uppercase tracking-wide text-text-muted">Access</p>
+                                        <p className="mt-1 font-medium text-text-primary">{patient.vascular_access_type}</p>
+                                    </div>
+                                    <div className="rounded-2xl border border-border-subtle bg-surface px-4 py-3">
+                                        <p className="text-xs uppercase tracking-wide text-text-muted">Dialyzer</p>
+                                        <p className="mt-1 font-medium text-text-primary">{patient.dialyzer_type}</p>
+                                    </div>
+                                    <div className="rounded-2xl border border-border-subtle bg-surface px-4 py-3">
+                                        <p className="text-xs uppercase tracking-wide text-text-muted">Duration</p>
+                                        <p className="mt-1 font-medium text-text-primary">{patient.dialysis_duration} h</p>
+                                    </div>
+                                    <div className="rounded-2xl border border-border-subtle bg-surface px-4 py-3">
+                                        <p className="text-xs uppercase tracking-wide text-text-muted">Frequency</p>
+                                        <p className="mt-1 font-medium text-text-primary">{patient.dialysis_frequency}/week</p>
+                                    </div>
+                                </div>
 
-                            <div className="mt-4 flex gap-2">
-                                <button
-                                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20 cursor-pointer"
-                                    onClick={(e) => { e.stopPropagation(); router.push(`/monitor?patient=${p.id}`); }}
-                                >
-                                    <Monitor className="h-3.5 w-3.5" />
-                                    Monitor
-                                </button>
-                                <button
-                                    className="flex items-center justify-center gap-1.5 rounded-lg border border-border-subtle px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover cursor-pointer"
-                                    onClick={(e) => { e.stopPropagation(); router.push(`/patients/${p.id}/history`); }}
-                                >
-                                    <BarChart3 className="h-3.5 w-3.5" />
-                                    History
-                                </button>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
+                                <div className="mt-5 flex gap-2">
+                                    <button
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            router.push(`/patients/${patient.id}`);
+                                        }}
+                                        className="flex-1 rounded-2xl border border-border-subtle px-4 py-3 text-sm font-medium text-text-primary hover:bg-surface-hover"
+                                    >
+                                        View profile
+                                    </button>
+                                    <button
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            router.push(`/monitor?patient=${patient.id}`);
+                                        }}
+                                        className="inline-flex items-center gap-2 rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-bg-primary"
+                                    >
+                                        <MonitorDot className="h-4 w-4" />
+                                        Monitor
+                                    </button>
+                                </div>
+                            </article>
+                        ))}
+                    </div>
+                )}
+            </section>
 
-            {/* ── Add Patient Modal ── */}
             {showAddModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-                    <div className="card w-full max-w-xl max-h-[85vh] overflow-y-auto p-8 animate-fade-in">
-                        <div className="mb-6 flex items-center justify-between">
-                            <h2 className="text-lg font-bold text-text-primary">Add New Patient</h2>
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm">
+                    <div className="card max-h-[90vh] w-full max-w-3xl overflow-y-auto p-6">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="text-xs uppercase tracking-[0.2em] text-text-muted">New patient</p>
+                                <h3 className="mt-2 text-2xl font-semibold text-text-primary">Create clinical baseline</h3>
+                            </div>
                             <button
                                 onClick={() => setShowAddModal(false)}
-                                className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary cursor-pointer"
+                                className="rounded-2xl p-2 text-text-muted hover:bg-surface-hover hover:text-text-primary"
                             >
                                 <X className="h-5 w-5" />
                             </button>
                         </div>
 
                         {error && (
-                            <div className="mb-4 flex items-center gap-2 rounded-lg border border-error/30 bg-error/10 px-4 py-2.5 text-sm text-error">
-                                <AlertCircle className="h-4 w-4 shrink-0" /> {error}
+                            <div className="mt-4 flex items-center gap-3 rounded-2xl border border-error/30 bg-error/10 px-4 py-3 text-sm text-error">
+                                <AlertCircle className="h-4 w-4" />
+                                <span>{error}</span>
                             </div>
                         )}
 
-                        <form onSubmit={handleAdd}>
-                            <div className="grid grid-cols-2 gap-4">
-                                {/* Name */}
+                        <form onSubmit={handleAdd} className="mt-6 space-y-6">
+                            <div className="grid gap-4 md:grid-cols-2">
                                 <div>
-                                    <label className="mb-1 block text-xs font-medium text-text-secondary">Name</label>
-                                    <input className={INPUT_CLS} value={formData.name} onChange={(e) => update('name', e.target.value)} required />
+                                    <label className="mb-2 block text-xs uppercase tracking-wide text-text-muted">Name</label>
+                                    <input className={INPUT_CLS} value={formData.name} onChange={(event) => update('name', event.target.value)} required />
                                 </div>
-                                {/* Age */}
                                 <div>
-                                    <label className="mb-1 block text-xs font-medium text-text-secondary">Age</label>
-                                    <input className={INPUT_CLS} type="number" value={formData.age} onChange={(e) => update('age', parseInt(e.target.value))} required />
+                                    <label className="mb-2 block text-xs uppercase tracking-wide text-text-muted">Age</label>
+                                    <input className={INPUT_CLS} type="number" value={formData.age} onChange={(event) => update('age', Number(event.target.value))} required />
                                 </div>
-                                {/* Gender */}
                                 <div>
-                                    <label className="mb-1 block text-xs font-medium text-text-secondary">Gender</label>
-                                    <select className={cn(INPUT_CLS, 'appearance-none')} value={formData.gender} onChange={(e) => update('gender', e.target.value)}>
-                                        <option>Male</option><option>Female</option>
+                                    <label className="mb-2 block text-xs uppercase tracking-wide text-text-muted">Gender</label>
+                                    <select className={INPUT_CLS} value={formData.gender} onChange={(event) => update('gender', event.target.value)}>
+                                        <option>Male</option>
+                                        <option>Female</option>
                                     </select>
                                 </div>
-                                {/* Weight */}
                                 <div>
-                                    <label className="mb-1 block text-xs font-medium text-text-secondary">Weight (kg)</label>
-                                    <input className={INPUT_CLS} type="number" step="0.1" value={formData.weight} onChange={(e) => update('weight', parseFloat(e.target.value))} />
+                                    <label className="mb-2 block text-xs uppercase tracking-wide text-text-muted">Weight (kg)</label>
+                                    <input className={INPUT_CLS} type="number" step="0.1" value={formData.weight} onChange={(event) => update('weight', Number(event.target.value))} />
                                 </div>
-                                {/* Severity */}
                                 <div>
-                                    <label className="mb-1 block text-xs font-medium text-text-secondary">Severity</label>
-                                    <select className={cn(INPUT_CLS, 'appearance-none')} value={formData.disease_severity} onChange={(e) => update('disease_severity', e.target.value)}>
-                                        <option>Mild</option><option>Moderate</option><option>Severe</option><option>Critical</option>
+                                    <label className="mb-2 block text-xs uppercase tracking-wide text-text-muted">Disease severity</label>
+                                    <select className={INPUT_CLS} value={formData.disease_severity} onChange={(event) => update('disease_severity', event.target.value)}>
+                                        <option>Mild</option>
+                                        <option>Moderate</option>
+                                        <option>Severe</option>
+                                        <option>Critical</option>
                                     </select>
                                 </div>
-                                {/* Kidney Failure Cause */}
                                 <div>
-                                    <label className="mb-1 block text-xs font-medium text-text-secondary">Kidney Failure Cause</label>
-                                    <select className={cn(INPUT_CLS, 'appearance-none')} value={formData.kidney_failure_cause} onChange={(e) => update('kidney_failure_cause', e.target.value)}>
-                                        <option>Diabetes</option><option>Hypertension</option><option>Glomerulonephritis</option><option>Polycystic</option><option>Other</option>
+                                    <label className="mb-2 block text-xs uppercase tracking-wide text-text-muted">Kidney failure cause</label>
+                                    <select className={INPUT_CLS} value={formData.kidney_failure_cause} onChange={(event) => update('kidney_failure_cause', event.target.value)}>
+                                        <option>Diabetes</option>
+                                        <option>Hypertension</option>
+                                        <option>Glomerulonephritis</option>
+                                        <option>Polycystic</option>
+                                        <option>Other</option>
                                     </select>
                                 </div>
-                                {/* Creatinine */}
                                 <div>
-                                    <label className="mb-1 block text-xs font-medium text-text-secondary">Creatinine</label>
-                                    <input className={INPUT_CLS} type="number" step="0.1" value={formData.creatinine} onChange={(e) => update('creatinine', parseFloat(e.target.value))} />
+                                    <label className="mb-2 block text-xs uppercase tracking-wide text-text-muted">Creatinine</label>
+                                    <input className={INPUT_CLS} type="number" step="0.1" value={formData.creatinine} onChange={(event) => update('creatinine', Number(event.target.value))} />
                                 </div>
-                                {/* Urea */}
                                 <div>
-                                    <label className="mb-1 block text-xs font-medium text-text-secondary">Urea</label>
-                                    <input className={INPUT_CLS} type="number" step="0.1" value={formData.urea} onChange={(e) => update('urea', parseFloat(e.target.value))} />
+                                    <label className="mb-2 block text-xs uppercase tracking-wide text-text-muted">Urea</label>
+                                    <input className={INPUT_CLS} type="number" step="0.1" value={formData.urea} onChange={(event) => update('urea', Number(event.target.value))} />
                                 </div>
-                                {/* Fluid Removal */}
                                 <div>
-                                    <label className="mb-1 block text-xs font-medium text-text-secondary">Fluid Removal (ml/hr)</label>
-                                    <input className={INPUT_CLS} type="number" value={formData.fluid_removal_rate} onChange={(e) => update('fluid_removal_rate', parseInt(e.target.value))} />
+                                    <label className="mb-2 block text-xs uppercase tracking-wide text-text-muted">Dialysis duration (hours)</label>
+                                    <input className={INPUT_CLS} type="number" step="0.5" value={formData.dialysis_duration} onChange={(event) => update('dialysis_duration', Number(event.target.value))} />
                                 </div>
-                                {/* Duration */}
                                 <div>
-                                    <label className="mb-1 block text-xs font-medium text-text-secondary">Duration (hrs)</label>
-                                    <input className={INPUT_CLS} type="number" step="0.5" value={formData.dialysis_duration} onChange={(e) => update('dialysis_duration', parseFloat(e.target.value))} />
+                                    <label className="mb-2 block text-xs uppercase tracking-wide text-text-muted">Fluid removal rate (ml/hour)</label>
+                                    <input className={INPUT_CLS} type="number" value={formData.fluid_removal_rate} onChange={(event) => update('fluid_removal_rate', Number(event.target.value))} />
                                 </div>
                             </div>
 
-                            {/* Checkboxes */}
-                            <div className="mt-4 flex gap-6">
-                                <label className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
-                                    <input type="checkbox" className="accent-accent h-4 w-4 rounded" checked={formData.diabetes} onChange={(e) => update('diabetes', e.target.checked)} />
+                            <div className="grid gap-3 sm:grid-cols-2">
+                                <label className="flex items-center gap-3 rounded-2xl border border-border-subtle bg-surface px-4 py-3 text-sm text-text-primary">
+                                    <input type="checkbox" checked={formData.diabetes} onChange={(event) => update('diabetes', event.target.checked)} />
                                     Diabetes
                                 </label>
-                                <label className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
-                                    <input type="checkbox" className="accent-accent h-4 w-4 rounded" checked={formData.hypertension} onChange={(e) => update('hypertension', e.target.checked)} />
+                                <label className="flex items-center gap-3 rounded-2xl border border-border-subtle bg-surface px-4 py-3 text-sm text-text-primary">
+                                    <input type="checkbox" checked={formData.hypertension} onChange={(event) => update('hypertension', event.target.checked)} />
                                     Hypertension
                                 </label>
                             </div>
 
-                            {/* Actions */}
-                            <div className="mt-6 flex justify-end gap-3">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
                                 <button
                                     type="button"
                                     onClick={() => setShowAddModal(false)}
-                                    className="rounded-lg border border-border-subtle px-4 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-hover cursor-pointer"
+                                    className="rounded-2xl border border-border-subtle px-5 py-3 text-sm font-medium text-text-secondary hover:bg-surface-hover"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     type="submit"
-                                    className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg-primary transition-all hover:bg-accent-hover cursor-pointer"
+                                    className="rounded-2xl bg-accent px-5 py-3 text-sm font-semibold text-bg-primary"
                                 >
-                                    Add Patient
+                                    Save patient
                                 </button>
                             </div>
                         </form>
@@ -298,5 +340,19 @@ export default function PatientsPage() {
                 </div>
             )}
         </PageShell>
+    );
+}
+
+export default function PatientsPage() {
+    return (
+        <Suspense
+            fallback={
+                <div className="flex min-h-screen items-center justify-center bg-bg-primary">
+                    <Loader2 className="h-8 w-8 animate-spin text-accent" />
+                </div>
+            }
+        >
+            <PatientsContent />
+        </Suspense>
     );
 }

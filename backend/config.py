@@ -2,6 +2,7 @@
 DialysisGuard Configuration
 """
 import os
+import sys
 from pydantic_settings import BaseSettings
 
 
@@ -33,11 +34,25 @@ class Settings(BaseSettings):
     # XAI
     SHAP_BACKGROUND_SAMPLES: int = 100
     MC_DROPOUT_PASSES: int = 20
-    
+    REALTIME_MC_DROPOUT_PASSES: int = 6
+    ANALYSIS_MC_DROPOUT_PASSES: int = 20
+
     # Simulation
-    SIMULATION_INTERVAL_SECONDS: float = 2.5
+    SIMULATION_INTERVAL_SECONDS: float = 3.0
     SIMULATION_TIME_STEPS: int = 30
-    
+
+    # Runtime support
+    SUPPORTED_PYTHON_MAJOR: int = 3
+    SUPPORTED_PYTHON_MINOR: int = 11
+
+    @property
+    def supported_python_version(self) -> str:
+        return f"{self.SUPPORTED_PYTHON_MAJOR}.{self.SUPPORTED_PYTHON_MINOR}.x"
+
+    @property
+    def current_python_version(self) -> str:
+        return f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+
     class Config:
         env_file = ".env"
 

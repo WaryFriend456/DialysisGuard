@@ -18,6 +18,7 @@ class UserRole(str, Enum):
 
 class SessionStatus(str, Enum):
     ACTIVE = "active"
+    PAUSED = "paused"
     COMPLETED = "completed"
     STOPPED = "stopped"
 
@@ -154,6 +155,10 @@ class SessionResponse(BaseModel):
     start_time: str
     end_time: Optional[str] = None
     status: SessionStatus
+    risk_profile: Optional[str] = None
+    current_step: int = 0
+    total_steps: int = 30
+    can_resume: bool = False
     time_series_count: int = 0
     prediction_count: int = 0
     alert_count: int = 0

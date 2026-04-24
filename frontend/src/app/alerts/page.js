@@ -85,7 +85,7 @@ export default function AlertsPage() {
                             {a.nl_explanation && <p className="mt-0.5 truncate text-xs text-text-muted">{a.nl_explanation}</p>}
                         </div>
                         {a.acknowledged ? (
-                            <span className="flex items-center gap-1 text-xs text-risk-low"><CheckCircle2 className="h-3.5 w-3.5" /> Ack'd</span>
+                            <span className="flex items-center gap-1 text-xs text-risk-low"><CheckCircle2 className="h-3.5 w-3.5" /> Acknowledged</span>
                         ) : (
                             <button onClick={async () => {
                                 try { await alertsApi.acknowledge(a.id); setAlertList(p => p.map(al => al.id === a.id ? { ...al, acknowledged: true } : al)); } catch { }

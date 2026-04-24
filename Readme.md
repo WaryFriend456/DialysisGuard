@@ -15,6 +15,47 @@ The system features:
 
 ---
 
+## Fresh Clone Bootstrap
+
+Use these versions for a reliable first run:
+
+- Python `3.11.x`
+- Node.js `LTS` (`18+` or `20+`)
+- MongoDB running locally on `mongodb://localhost:27017`
+
+### Backend
+
+```bash
+cd backend
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+```
+
+Optional environment variables:
+
+```bash
+MONGODB_URI=mongodb://localhost:27017
+JWT_SECRET=change-this-before-production
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### Notes
+
+- The backend now validates model artifacts on startup and fails with an explicit message if any required file is missing or unreadable.
+- The model loader is safe on Windows terminals using `cp1252`, so fresh clones should no longer crash during startup due to Unicode logging.
+- The monitoring session is resumable. If you leave the monitor page, return through the sidebar `Monitor` entry or the active-session banner.
+
+---
+
 ## Project Architecture & Components
 
 ### Component 1: Project Structure

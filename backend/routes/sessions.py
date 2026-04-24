@@ -1,7 +1,7 @@
 """
 Session Routes — Start/stop/manage dialysis sessions.
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from bson import ObjectId
 from datetime import datetime
 import sys, os
@@ -10,8 +10,30 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from database import get_database
 from models.schemas import SessionCreate, SessionResponse, SessionStatus
 from routes.auth import get_current_user
+from config import settings
 
 router = APIRouter(prefix="/api/sessions", tags=["Sessions"])
+
+
+def _session_response(session: dict, db) -> SessionResponse:
+    current_step = int(session.get("current_step", len(session.get("time_series_data", []))))
+    total_steps = int(session.get("total_steps", settings.SIMULATION_TIME_STEPS))
+    status = session.get("status", SessionStatus.ACTIVE.value)
+    return SessionResponse(
+        id=str(session["_id"]),
+        patient_id=session["patient_id"],
+        started_by=session.get("started_by"),
+        start_time=session["start_time"],
+        end_time=session.get("end_time"),
+        status=status,
+        risk_profile=session.get("risk_profile"),
+        current_step=current_step,
+        total_steps=total_steps,
+        can_resume=status in {SessionStatus.ACTIVE.value, SessionStatus.PAUSED.value} and current_step < total_steps,
+        time_series_count=len(session.get("time_series_data", [])),
+        prediction_count=len(session.get("predictions", [])),
+        alert_count=db.alerts.count_documents({"session_id": str(session["_id"])})
+    )
 
 
 @router.post("/", response_model=SessionResponse)
@@ -27,20 +49,27 @@ async def create_session(data: SessionCreate, user=Depends(get_current_user)):
     
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
-    
-    # Auto-close any stale active sessions for this patient
-    db.sessions.update_many(
-        {"patient_id": data.patient_id, "status": "active"},
-        {"$set": {"status": "completed", "end_time": datetime.utcnow().isoformat()}}
+
+    existing = db.sessions.find_one(
+        {
+            "patient_id": data.patient_id,
+            "status": {"$in": [SessionStatus.ACTIVE.value, SessionStatus.PAUSED.value]}
+        },
+        sort=[("start_time", -1)]
     )
+    if existing:
+        return _session_response(existing, db)
     
     session_doc = {
         "patient_id": data.patient_id,
         "started_by": user["id"],
         "start_time": datetime.utcnow().isoformat(),
         "end_time": None,
-        "status": "active",
+        "status": SessionStatus.ACTIVE.value,
         "risk_profile": data.risk_profile,
+        "current_step": 0,
+        "total_steps": settings.SIMULATION_TIME_STEPS,
+        "explicit_stop": False,
         "time_series_data": [],
         "predictions": [],
         "explanations": [],
@@ -48,14 +77,30 @@ async def create_session(data: SessionCreate, user=Depends(get_current_user)):
     }
     
     result = db.sessions.insert_one(session_doc)
-    
-    return SessionResponse(
-        id=str(result.inserted_id),
-        patient_id=data.patient_id,
-        started_by=user["id"],
-        start_time=session_doc["start_time"],
-        status=SessionStatus.ACTIVE
-    )
+    session_doc["_id"] = result.inserted_id
+    return _session_response(session_doc, db)
+
+
+@router.get("/active/current")
+async def get_current_active_session(
+    patient_id: str | None = Query(default=None),
+    user=Depends(get_current_user)
+):
+    """Get the most recent resumable session for the current user, optionally scoped to a patient."""
+    db = get_database()
+    query = {
+        "status": {"$in": [SessionStatus.ACTIVE.value, SessionStatus.PAUSED.value]}
+    }
+    if patient_id:
+        query["patient_id"] = patient_id
+    else:
+        query["started_by"] = user["id"]
+
+    session = db.sessions.find_one(query, sort=[("start_time", -1)])
+    if not session:
+        return {"session": None}
+
+    return {"session": _session_response(session, db)}
 
 
 @router.get("/{session_id}", response_model=SessionResponse)
@@ -70,18 +115,8 @@ async def get_session(session_id: str, user=Depends(get_current_user)):
     
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
-    return SessionResponse(
-        id=str(session["_id"]),
-        patient_id=session["patient_id"],
-        started_by=session.get("started_by"),
-        start_time=session["start_time"],
-        end_time=session.get("end_time"),
-        status=session["status"],
-        time_series_count=len(session.get("time_series_data", [])),
-        prediction_count=len(session.get("predictions", [])),
-        alert_count=db.alerts.count_documents({"session_id": session_id})
-    )
+
+    return _session_response(session, db)
 
 
 @router.post("/{session_id}/stop")
@@ -93,7 +128,7 @@ async def stop_session(session_id: str, user=Depends(get_current_user)):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     
-    if session["status"] != "active":
+    if session["status"] not in {SessionStatus.ACTIVE.value, SessionStatus.PAUSED.value}:
         raise HTTPException(status_code=400, detail="Session is not active")
     
     # Generate auto-report
@@ -102,8 +137,10 @@ async def stop_session(session_id: str, user=Depends(get_current_user)):
     db.sessions.update_one(
         {"_id": ObjectId(session_id)},
         {"$set": {
-            "status": "completed",
+            "status": SessionStatus.COMPLETED.value,
             "end_time": datetime.utcnow().isoformat(),
+            "explicit_stop": True,
+            "current_step": len(session.get("time_series_data", [])),
             "report": report
         }}
     )
@@ -138,16 +175,7 @@ async def get_patient_sessions(patient_id: str, user=Depends(get_current_user)):
     
     result = []
     for s in sessions:
-        result.append(SessionResponse(
-            id=str(s["_id"]),
-            patient_id=s["patient_id"],
-            started_by=s.get("started_by"),
-            start_time=s["start_time"],
-            end_time=s.get("end_time"),
-            status=s["status"],
-            time_series_count=len(s.get("time_series_data", [])),
-            prediction_count=len(s.get("predictions", []))
-        ))
+        result.append(_session_response(s, db))
     
     return {"sessions": result}
 

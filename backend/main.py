@@ -1,10 +1,11 @@
 """
-DialysisGuard FastAPI Application — Main Entry Point
+DialysisGuard FastAPI Application - Main Entry Point
 
 Run with: uvicorn main:app --reload --port 8000
 """
 import sys
 import os
+import logging
 import traceback
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, Request
@@ -31,14 +32,21 @@ from routes.explanations import router as explanations_router
 from websocket.realtime import websocket_monitor
 
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger("dialysisguard.api")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown events."""
-    print("🚀 Starting DialysisGuard API...")
+    logger.info("Starting DialysisGuard API")
     
     # Initialize database
     get_database()
-    print("✅ MongoDB connected")
+    logger.info("MongoDB connected")
     
     # Initialize ML model
     ml_service.initialize()
@@ -46,14 +54,14 @@ async def lifespan(app: FastAPI):
     # Initialize XAI service
     xai_service.initialize(ml_service)
     
-    print("🚀 DialysisGuard API is ready!")
-    print(f"📄 API Docs: http://localhost:8000/docs")
+    logger.info("DialysisGuard API is ready")
+    logger.info("API docs available at http://localhost:8000/docs")
     
     yield
     
     # Shutdown
     close_database()
-    print("👋 DialysisGuard API shutdown")
+    logger.info("DialysisGuard API shutdown")
 
 
 app = FastAPI(

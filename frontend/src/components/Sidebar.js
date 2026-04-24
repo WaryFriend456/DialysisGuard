@@ -1,112 +1,141 @@
 'use client';
+
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { Activity, Bell, Brain, LayoutDashboard, LogOut, MenuSquare, MonitorDot, Users, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
-import {
-    LayoutDashboard,
-    Building2,
-    MonitorDot,
-    Users,
-    Bell,
-    Brain,
-    LogOut,
-    Activity,
-    ChevronRight,
-} from 'lucide-react';
 
 const navItems = [
-    { href: '/dashboard/doctor', label: 'Dashboard', icon: LayoutDashboard, roles: ['doctor'] },
-    { href: '/dashboard/caregiver', label: 'Dashboard', icon: Building2, roles: ['caregiver'] },
-    { href: '/dashboard/command', label: 'Command Center', icon: MonitorDot, roles: ['doctor'] },
-    { href: '/patients', label: 'Patients', icon: Users, roles: ['doctor', 'caregiver'] },
-    { href: '/alerts', label: 'Alerts', icon: Bell, roles: ['doctor', 'caregiver'] },
-    { href: '/model-info', label: 'Model Info', icon: Brain, roles: ['doctor'] },
+    {
+        label: 'Dashboard',
+        icon: LayoutDashboard,
+        roles: ['doctor'],
+        href: '/dashboard/doctor',
+        match: ['/dashboard/doctor'],
+    },
+    {
+        label: 'Dashboard',
+        icon: LayoutDashboard,
+        roles: ['caregiver'],
+        href: '/dashboard/caregiver',
+        match: ['/dashboard/caregiver'],
+    },
+    {
+        label: 'Patients',
+        icon: Users,
+        roles: ['doctor', 'caregiver'],
+        href: '/patients',
+        match: ['/patients'],
+    },
+    {
+        label: 'Monitor',
+        icon: MonitorDot,
+        roles: ['doctor', 'caregiver'],
+        href: '/monitor',
+        match: ['/monitor'],
+    },
+    {
+        label: 'Alerts',
+        icon: Bell,
+        roles: ['doctor', 'caregiver'],
+        href: '/alerts',
+        match: ['/alerts'],
+    },
+    {
+        label: 'Command Center',
+        icon: MenuSquare,
+        roles: ['doctor'],
+        href: '/dashboard/command',
+        match: ['/dashboard/command'],
+    },
+    {
+        label: 'Model Info',
+        icon: Brain,
+        roles: ['doctor'],
+        href: '/model-info',
+        match: ['/model-info'],
+    },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ open, onClose }) {
     const pathname = usePathname();
     const { user, logout } = useAuth();
 
     if (!user) return null;
 
-    const filtered = navItems.filter(item => item.roles.includes(user.role));
+    const filtered = navItems.filter((item) => item.roles.includes(user.role));
 
     return (
-        <aside className="fixed top-0 left-0 z-40 flex h-screen w-60 flex-col border-r border-border-subtle bg-bg-secondary">
-            {/* Brand */}
-            <div className="px-5 pt-6 pb-4">
-                <div className="flex items-center gap-2.5">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/15">
-                        <Activity className="h-4.5 w-4.5 text-accent" />
+        <>
+            <div
+                className={cn(
+                    'fixed inset-0 z-40 bg-black/50 transition-opacity lg:hidden',
+                    open ? 'opacity-100' : 'pointer-events-none opacity-0'
+                )}
+                onClick={onClose}
+            />
+            <aside
+                className={cn(
+                    'fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-border-subtle bg-bg-secondary/95 backdrop-blur transition-transform lg:translate-x-0',
+                    open ? 'translate-x-0' : '-translate-x-full'
+                )}
+            >
+                <div className="flex items-center justify-between border-b border-border-subtle px-5 py-5">
+                    <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-accent/15">
+                            <Activity className="h-5 w-5 text-accent" />
+                        </div>
+                        <div>
+                            <p className="text-lg font-semibold text-text-primary">DialysisGuard</p>
+                            <p className="text-xs uppercase tracking-[0.2em] text-text-muted">Clinical Workspace</p>
+                        </div>
                     </div>
-                    <div>
-                        <h1 className="text-base font-bold tracking-tight text-text-primary">
-                            DialysisGuard
-                        </h1>
-                        <p className="text-[10px] font-medium tracking-wider uppercase text-text-muted">
-                            AI Monitoring
-                        </p>
-                    </div>
+                    <button
+                        onClick={onClose}
+                        className="rounded-xl p-2 text-text-muted hover:bg-surface-hover hover:text-text-primary lg:hidden"
+                    >
+                        <X className="h-4 w-4" />
+                    </button>
                 </div>
-            </div>
 
-            {/* Navigation */}
-            <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-2">
-                <p className="mb-2 px-2 text-[10px] font-semibold tracking-widest uppercase text-text-muted">
-                    Navigation
-                </p>
-                {filtered.map(item => {
-                    const Icon = item.icon;
-                    const active = pathname === item.href;
-                    return (
-                        <Link
-                            key={item.href}
-                            href={item.href}
-                            className={cn(
-                                'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all',
-                                'hover:bg-surface-hover hover:text-text-primary',
-                                active
-                                    ? 'bg-accent/10 text-accent'
-                                    : 'text-text-secondary'
-                            )}
-                        >
-                            <Icon className={cn(
-                                'h-4 w-4 shrink-0 transition-colors',
-                                active ? 'text-accent' : 'text-text-muted group-hover:text-text-secondary'
-                            )} />
-                            <span className="flex-1">{item.label}</span>
-                            {active && (
-                                <ChevronRight className="h-3.5 w-3.5 text-accent/60" />
-                            )}
-                        </Link>
-                    );
-                })}
-            </nav>
+                <nav className="flex-1 space-y-1 overflow-y-auto px-4 py-4">
+                    {filtered.map((item) => {
+                        const Icon = item.icon;
+                        const active = item.match.some((prefix) => pathname.startsWith(prefix));
+                        return (
+                            <Link
+                                key={item.href}
+                                href={item.href}
+                                onClick={onClose}
+                                className={cn(
+                                    'flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition-all',
+                                    active
+                                        ? 'bg-accent text-bg-primary shadow-[0_8px_24px_rgba(0,0,0,0.18)]'
+                                        : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                                )}
+                            >
+                                <Icon className="h-4 w-4" />
+                                <span>{item.label}</span>
+                            </Link>
+                        );
+                    })}
+                </nav>
 
-            {/* User footer */}
-            <div className="border-t border-border-subtle px-4 py-4">
-                <div className="mb-3 flex items-center gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-surface text-xs font-bold text-accent uppercase">
-                        {user.name?.charAt(0) || '?'}
+                <div className="border-t border-border-subtle px-4 py-4">
+                    <div className="mb-4 rounded-2xl border border-border-subtle bg-surface px-4 py-3">
+                        <p className="text-sm font-semibold text-text-primary">{user.name}</p>
+                        <p className="text-xs uppercase tracking-wide text-text-muted">{user.role}</p>
                     </div>
-                    <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-text-primary">
-                            {user.name}
-                        </p>
-                        <p className="text-xs text-text-muted capitalize">
-                            {user.role}
-                        </p>
-                    </div>
+                    <button
+                        onClick={logout}
+                        className="flex w-full items-center justify-center gap-2 rounded-2xl border border-border-subtle px-4 py-3 text-sm font-medium text-text-secondary transition-all hover:bg-surface-hover hover:text-text-primary"
+                    >
+                        <LogOut className="h-4 w-4" />
+                        Sign Out
+                    </button>
                 </div>
-                <button
-                    onClick={logout}
-                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-border-subtle bg-transparent px-3 py-1.5 text-xs font-medium text-text-secondary transition-all hover:border-border hover:bg-surface-hover hover:text-text-primary cursor-pointer"
-                >
-                    <LogOut className="h-3.5 w-3.5" />
-                    Sign Out
-                </button>
-            </div>
-        </aside>
+            </aside>
+        </>
     );
 }

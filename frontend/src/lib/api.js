@@ -56,6 +56,7 @@ export const patients = {
 // Sessions
 export const sessions = {
     create: (data) => request('/api/sessions/', { method: 'POST', body: JSON.stringify(data) }),
+    current: (patientId) => request(`/api/sessions/active/current${patientId ? `?patient_id=${patientId}` : ''}`),
     get: (id) => request(`/api/sessions/${id}`),
     stop: (id) => request(`/api/sessions/${id}/stop`, { method: 'POST' }),
     report: (id) => request(`/api/sessions/${id}/report`),
