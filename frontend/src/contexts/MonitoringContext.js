@@ -7,6 +7,18 @@ const MonitoringContext = createContext(null);
 const STORAGE_KEY = 'active_monitoring_session';
 
 const emptyHistory = { risk: [], vitals: [] };
+const isWebSocketReady = (ws) => ws && [WebSocket.OPEN, WebSocket.CONNECTING].includes(ws.readyState);
+
+function isSessionResumable(candidate) {
+    if (!candidate?.id) return false;
+    const currentStep = Number(candidate.current_step ?? 0);
+    const totalSteps = Number(candidate.total_steps ?? 30);
+    if (currentStep >= totalSteps) return false;
+    if (typeof candidate.can_resume === 'boolean') {
+        return candidate.can_resume;
+    }
+    return ['active', 'paused'].includes(candidate.status);
+}
 
 function readStoredSession() {
     if (typeof window === 'undefined') return null;
@@ -39,33 +51,16 @@ export function MonitoringProvider({ children }) {
     const [patientSummary, setPatientSummary] = useState(null);
 
     const wsRef = useRef(null);
+    const wsSessionIdRef = useRef(null);
     const stopIntentRef = useRef(false);
     const bootstrappedRef = useRef(false);
+    const hadSocketErrorRef = useRef(false);
+    const completedSessionIdsRef = useRef(new Set());
+    const sessionRef = useRef(null);
 
-    const clearActiveState = useCallback(() => {
-        persistSession(null);
-        setSession(null);
-        setConnected(false);
-        setData(null);
-        setHistory(emptyHistory);
-        setAlerts([]);
-        setPatientSummary(null);
-        setError(null);
-    }, []);
-
-    const hydrateSession = useCallback((nextSession, extras = {}) => {
-        if (!nextSession) return;
-        const merged = {
-            ...nextSession,
-            ...extras,
-        };
-        setSession(merged);
-        persistSession({
-            sessionId: merged.id,
-            patientId: merged.patient_id,
-            patientName: extras.patientName || patientSummary?.name || null,
-        });
-    }, [patientSummary]);
+    useEffect(() => {
+        sessionRef.current = session;
+    }, [session]);
 
     const disconnectSocket = useCallback(() => {
         if (wsRef.current) {
@@ -76,14 +71,56 @@ export function MonitoringProvider({ children }) {
             }
             wsRef.current = null;
         }
+        wsSessionIdRef.current = null;
     }, []);
+
+    const clearActiveState = useCallback(() => {
+        disconnectSocket();
+        wsSessionIdRef.current = null;
+        hadSocketErrorRef.current = false;
+        persistSession(null);
+        setSession(null);
+        setConnected(false);
+        setData(null);
+        setHistory(emptyHistory);
+        setAlerts([]);
+        setPatientSummary(null);
+        setError(null);
+    }, [disconnectSocket]);
+
+    const hydrateSession = useCallback((nextSession, extras = {}) => {
+        if (!nextSession) return;
+        const normalizedCurrent = Number(nextSession.current_step ?? 0);
+        const normalizedTotal = Number(nextSession.total_steps ?? 30);
+        const merged = {
+            ...nextSession,
+            current_step: normalizedCurrent,
+            total_steps: normalizedTotal,
+            can_resume: normalizedCurrent < normalizedTotal && (
+                typeof nextSession.can_resume === 'boolean'
+                    ? nextSession.can_resume
+                    : ['active', 'paused'].includes(nextSession.status)
+            ),
+            ...extras,
+        };
+        setSession(merged);
+        persistSession({
+            sessionId: merged.id,
+            patientId: merged.patient_id,
+            patientName: extras.patientName || patientSummary?.name || null,
+        });
+    }, [patientSummary]);
 
     const handleMessage = useCallback((msg) => {
         if (!msg?.type) return;
 
         if (msg.type === 'session_start') {
+            hadSocketErrorRef.current = false;
+            setError(null);
             setConnected(true);
             setStatus('working');
+            const incomingCurrent = Number(msg.current_step ?? 0);
+            const incomingTotal = Number(msg.total_steps ?? 30);
             setPatientSummary({
                 id: msg.patient_id,
                 name: msg.patient_name || null,
@@ -94,9 +131,9 @@ export function MonitoringProvider({ children }) {
                     id: msg.session_id,
                     patient_id: msg.patient_id,
                     risk_profile: msg.risk_profile,
-                    current_step: msg.current_step ?? prev?.current_step ?? 0,
-                    total_steps: msg.total_steps ?? prev?.total_steps ?? 30,
-                    can_resume: true,
+                    current_step: incomingCurrent,
+                    total_steps: incomingTotal,
+                    can_resume: incomingCurrent < incomingTotal,
                     status: 'active',
                 };
                 persistSession({
@@ -110,19 +147,26 @@ export function MonitoringProvider({ children }) {
         }
 
         if (msg.type === 'monitoring_data') {
+            hadSocketErrorRef.current = false;
+            setError(null);
             setStatus('working');
             setData(msg);
             setPatientSummary((prev) => ({
                 id: msg.patient_id || prev?.id || session?.patient_id || null,
                 name: msg.patient_name || prev?.name || null,
             }));
-            setSession((prev) => prev ? {
-                ...prev,
-                current_step: (msg.step ?? prev.current_step ?? 0) + 1,
-                total_steps: prev.total_steps ?? 30,
-                can_resume: true,
-                status: 'active',
-            } : prev);
+            setSession((prev) => {
+                if (!prev) return prev;
+                const nextCurrent = Number((msg.step ?? prev.current_step ?? 0) + 1);
+                const total = Number(prev.total_steps ?? 30);
+                return {
+                    ...prev,
+                    current_step: nextCurrent,
+                    total_steps: total,
+                    can_resume: nextCurrent < total,
+                    status: nextCurrent >= total ? 'completed' : 'active',
+                };
+            });
             setHistory((prev) => ({
                 risk: [
                     ...prev.risk,
@@ -143,8 +187,13 @@ export function MonitoringProvider({ children }) {
         }
 
         if (msg.type === 'session_complete') {
+            const completedId = msg.session_id || sessionRef.current?.id;
+            if (completedId) {
+                completedSessionIdsRef.current.add(completedId);
+            }
             disconnectSocket();
             persistSession(null);
+            hadSocketErrorRef.current = false;
             setConnected(false);
             setStatus('idle');
             setSession((prev) => prev ? {
@@ -157,7 +206,22 @@ export function MonitoringProvider({ children }) {
         }
 
         if (msg.type === 'error') {
-            setError(msg.message || 'Monitoring error');
+            const message = msg.message || 'Monitoring error';
+            const terminalNoResume = message.toLowerCase().includes('no longer resumable');
+            if (terminalNoResume) {
+                disconnectSocket();
+                persistSession(null);
+                setConnected(false);
+                setStatus('idle');
+                setSession((prev) => prev ? {
+                    ...prev,
+                    can_resume: false,
+                    status: 'completed',
+                    current_step: prev.total_steps ?? prev.current_step,
+                } : prev);
+                return;
+            }
+            setError(message);
             setConnected(false);
             setStatus('error');
         }
@@ -165,37 +229,68 @@ export function MonitoringProvider({ children }) {
 
     const connect = useCallback((sessionId) => {
         if (!sessionId) return;
-        if (wsRef.current?.readyState === WebSocket.OPEN) return;
+        if (isWebSocketReady(wsRef.current) && wsSessionIdRef.current === sessionId) {
+            return;
+        }
 
         disconnectSocket();
         stopIntentRef.current = false;
+        hadSocketErrorRef.current = false;
+        setError(null);
+        wsSessionIdRef.current = sessionId;
         wsRef.current = connectMonitor(
             sessionId,
             handleMessage,
             () => {
-                setError('WebSocket connection error');
+                hadSocketErrorRef.current = true;
                 setConnected(false);
-                setStatus('error');
+                setStatus((prev) => (prev === 'working' ? 'reconnecting' : prev));
             },
             () => {
+                const sessionSnapshot = sessionRef.current;
+                const isCompleted = Boolean(
+                    completedSessionIdsRef.current.has(sessionId) ||
+                    sessionSnapshot?.status === 'completed' ||
+                    Number(sessionSnapshot?.current_step ?? 0) >= Number(sessionSnapshot?.total_steps ?? 30)
+                );
+
                 wsRef.current = null;
+                wsSessionIdRef.current = null;
                 setConnected(false);
-                setStatus((prev) => (stopIntentRef.current ? 'idle' : (session ? 'paused' : prev)));
-                setSession((prev) => prev && !stopIntentRef.current ? {
-                    ...prev,
-                    status: 'paused',
-                    can_resume: true,
-                } : prev);
+                if (stopIntentRef.current || isCompleted) {
+                    setStatus('idle');
+                    hadSocketErrorRef.current = false;
+                    return;
+                }
+
+                if (hadSocketErrorRef.current) {
+                    setError('WebSocket connection interrupted');
+                    setStatus('error');
+                } else {
+                    setStatus((prev) => (prev === 'working' ? 'paused' : prev));
+                }
+
+                setSession((prev) => {
+                    if (!prev || stopIntentRef.current || !isSessionResumable(prev)) {
+                        return prev;
+                    }
+                    return {
+                        ...prev,
+                        status: 'paused',
+                        can_resume: true,
+                    };
+                });
+                hadSocketErrorRef.current = false;
             }
         );
-    }, [disconnectSocket, handleMessage, session]);
+    }, [disconnectSocket, handleMessage]);
 
     const restoreSession = useCallback(async (sessionId) => {
         if (!sessionId) return null;
         setStatus('restoring');
         try {
             const active = await sessions.get(sessionId);
-            if (!['active', 'paused'].includes(active.status)) {
+            if (!isSessionResumable(active)) {
                 clearActiveState();
                 setStatus('idle');
                 return null;
@@ -221,7 +316,7 @@ export function MonitoringProvider({ children }) {
         const { autoStart = false, riskProfile } = options;
 
         if (session?.patient_id === patientId && session?.id) {
-            if (!connected && ['active', 'paused'].includes(session.status)) {
+            if (!connected && isSessionResumable(session)) {
                 connect(session.id);
             }
             return session;
@@ -232,7 +327,7 @@ export function MonitoringProvider({ children }) {
 
         try {
             const resumable = await getResumableSession(patientId);
-            if (resumable) {
+            if (resumable && isSessionResumable(resumable)) {
                 hydrateSession(resumable);
                 connect(resumable.id);
                 return resumable;
@@ -298,7 +393,7 @@ export function MonitoringProvider({ children }) {
         status,
         patientSummary,
         activeSession: session,
-        hasActiveSession: Boolean(session?.id && ['active', 'paused'].includes(session.status)),
+        hasActiveSession: isSessionResumable(session),
         startSession,
         stopSession,
         restoreSession,

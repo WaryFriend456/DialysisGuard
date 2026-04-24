@@ -5,6 +5,7 @@ WebSocket realtime monitoring for dialysis sessions.
 import asyncio
 import logging
 import os
+import random
 import sys
 import time
 import traceback
@@ -126,7 +127,9 @@ async def websocket_monitor(websocket: WebSocket, session_id: str):
                 "risk_profile": risk_profile,
                 "total_steps": total_steps,
                 "current_step": start_index,
-                "interval_seconds": settings.SIMULATION_INTERVAL_SECONDS,
+                "interval_seconds": settings.simulation_interval_seconds,
+                "interval_seconds_min": settings.SIMULATION_INTERVAL_MIN_SECONDS,
+                "interval_seconds_max": settings.SIMULATION_INTERVAL_MAX_SECONDS,
                 "is_resume": start_index > 0,
             },
         ):
@@ -144,11 +147,12 @@ async def websocket_monitor(websocket: WebSocket, session_id: str):
                 previous_steps.append(step_data)
 
                 X = ml_service.preprocess_sequence(previous_steps)
+                deterministic = ml_service.predict(X)
                 uncertainty = ml_service.predict_with_uncertainty(
                     X, n_passes=settings.REALTIME_MC_DROPOUT_PASSES
                 )
-                risk_prob = float(uncertainty["mean"])
-                risk_level = ml_service.get_risk_level(risk_prob)
+                risk_prob = float(deterministic["probability"])
+                risk_level = deterministic["risk_level"]
                 predictions_history.append(risk_prob)
 
                 top_features = xai_service.approximate_feature_importance_fast(X)[
@@ -266,7 +270,11 @@ async def websocket_monitor(websocket: WebSocket, session_id: str):
                     break
 
                 elapsed = time.monotonic() - step_started
-                sleep_for = max(0.0, settings.SIMULATION_INTERVAL_SECONDS - elapsed)
+                interval_target = random.uniform(
+                    settings.SIMULATION_INTERVAL_MIN_SECONDS,
+                    settings.SIMULATION_INTERVAL_MAX_SECONDS,
+                )
+                sleep_for = max(0.0, interval_target - elapsed)
                 if sleep_for > 0:
                     await asyncio.sleep(sleep_for)
             except Exception as exc:

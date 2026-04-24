@@ -10,7 +10,7 @@ The system features:
 - A **FastAPI** backend with REST APIs and WebSocket support
 - A MongoDB database for persistent storage
 - A **physiologically realistic simulation engine** that generates random but clinically plausible vital trajectories
-- A Next.js frontend with dark theme, role-based dashboards, real-time monitoring, XAI, and alerts
+- A Next.js frontend with dual-theme clinical UI (light/dark), role-based dashboards, real-time monitoring, XAI, and alerts
 - **8 innovative features** pushing beyond standard monitoring (predictive forecasting, smart escalation, anomaly detection, etc.)
 
 ---
@@ -20,7 +20,7 @@ The system features:
 Use these versions for a reliable first run:
 
 - Python `3.11.x`
-- Node.js `LTS` (`18+` or `20+`)
+- Node.js `LTS` (`18+`, `20+`, or newer LTS)
 - MongoDB running locally on `mongodb://localhost:27017`
 
 ### Backend
@@ -30,14 +30,26 @@ cd backend
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
+copy .env.example .env
+python scripts/preflight.py
 uvicorn main:app --reload --port 8000
 ```
 
-Optional environment variables:
+Preflight checks:
+- Python/TensorFlow runtime compatibility
+- Required model artifacts
+- Encoder/config consistency
+- MongoDB connectivity
+
+Key environment variables (see `backend/.env.example`):
 
 ```bash
+DEBUG=true
 MONGODB_URI=mongodb://localhost:27017
+MONGODB_DB=dialysisguard
 JWT_SECRET=change-this-before-production
+SIMULATION_INTERVAL_MIN_SECONDS=5
+SIMULATION_INTERVAL_MAX_SECONDS=7
 ```
 
 ### Frontend
@@ -50,9 +62,10 @@ npm run dev
 
 ### Notes
 
-- The backend now validates model artifacts on startup and fails with an explicit message if any required file is missing or unreadable.
-- The model loader is safe on Windows terminals using `cp1252`, so fresh clones should no longer crash during startup due to Unicode logging.
-- The monitoring session is resumable. If you leave the monitor page, return through the sidebar `Monitor` entry or the active-session banner.
+- Monitoring now runs on a realistic jittered cadence (5-7 seconds per step).
+- Session resume chips/buttons only appear for truly resumable sessions (`current_step < total_steps`).
+- `/dashboard/command` is kept for backward compatibility and now redirects to `/patients`.
+- `DEBUG` parsing is tolerant to common values like `true`, `false`, `dev`, `release`.
 
 ---
 
@@ -107,7 +120,7 @@ npm run dev
     │   │   ├── dashboard/
     │   │   │   ├── doctor/page.js       # Doctor dashboard
     │   │   │   ├── caregiver/page.js    # Caregiver dashboard
-    │   │   │   └── command/page.js      # Multi-patient command center
+    │   │   │   └── command/page.js      # Backward-compatible redirect to /patients
     │   │   ├── patients/page.js         # Patient management (consolidated)
     │   │   ├── monitor/page.js          # Real-time monitoring & XAI dashboard (consolidated)
     │   │   ├── alerts/page.js           # Alerts dashboard
@@ -274,7 +287,7 @@ class PhysiologicalSimulator:
 **Implementation**: `backend/websocket/realtime.py`
 - FastAPI WebSocket endpoint at `/ws/monitor/{session_id}`
 - On connect: simulation engine begins generating vital data
-- **Every 2-3 seconds** emits a JSON payload:
+- **Every 5-7 seconds** emits a JSON payload:
 
 ```json
 {
@@ -339,11 +352,9 @@ class PhysiologicalSimulator:
 - Currently consolidated into patient profile/monitoring views.
 - Trend analysis across past sessions for specific patients.
 
-**Multi-Patient Command Center** (`/dashboard/command`):
-- Grid view of ALL active sessions simultaneously
-- Each cell: patient name, mini vital chart, risk gauge, alert status
-- Click any cell to drill into full monitoring view
-- Auto-sorts by risk level (highest risk at top)
+**Command Center Route Compatibility** (`/dashboard/command`):
+- This route is kept only for legacy bookmarks.
+- It now redirects to `/patients`, which is the single operational patient hub.
 
 **Model Info** — Full model card display
 
@@ -400,12 +411,10 @@ graph TD
 - Identify patterns: "This patient typically becomes unstable around minute 160"
 - **Clinical value**: Personalized risk thresholds based on patient history
 
-#### 4. Multi-Patient Command Center
-- Real-time grid view of ALL active sessions
-- Auto-sorted: highest risk patients at top-left
-- Color-coded borders: green (low), yellow (moderate), red (high), pulsing red (critical)
-- One-click drill-down to full monitoring view
-- **Clinical value**: Nurse stations monitoring multiple patients simultaneously
+#### 4. Unified Patient Operations
+- `Patients` is the single operational hub for patient registry and monitoring entry.
+- Command route bookmarks remain safe via redirect compatibility.
+- **Clinical value**: simpler navigation and lower operational ambiguity.
 
 #### 5. Auto Session Report
 - At session end, auto-generates a comprehensive report:
@@ -533,7 +542,7 @@ sequenceDiagram
     WS->>SIM: Generate vital trajectory (patient baseline + risk profile)
     WS->>DB: Create Session
 
-    loop Every 2-3 seconds (30 time steps)
+    loop Every 5-7 seconds (30 time steps)
         SIM-->>WS: Generated vital signs for this step
         WS->>ML: Predict on accumulated window (MC Dropout × 20)
         ML-->>WS: Risk prob + confidence interval
@@ -608,3 +617,4 @@ npm start
 10. **Command Center**: Open the multi-patient command center, start 3+ sessions, verify priority grid sorting.
 11. **Report Generation**: Stop a session and verify auto-generated endpoint report payloads.
 12. **Roles**: Test difference between restricted `caregiver` and full `doctor` access.
+

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Activity, Bell, Brain, LayoutDashboard, LogOut, MenuSquare, MonitorDot, Users, X } from 'lucide-react';
+import { Activity, Bell, Brain, LayoutDashboard, LogOut, MonitorDot, Users, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 
@@ -41,13 +41,6 @@ const navItems = [
         roles: ['doctor', 'caregiver'],
         href: '/alerts',
         match: ['/alerts'],
-    },
-    {
-        label: 'Command Center',
-        icon: MenuSquare,
-        roles: ['doctor'],
-        href: '/dashboard/command',
-        match: ['/dashboard/command'],
     },
     {
         label: 'Model Info',

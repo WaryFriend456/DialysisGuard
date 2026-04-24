@@ -3,6 +3,8 @@ DialysisGuard Configuration
 """
 import os
 import sys
+from typing import Any
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -38,12 +40,41 @@ class Settings(BaseSettings):
     ANALYSIS_MC_DROPOUT_PASSES: int = 20
 
     # Simulation
-    SIMULATION_INTERVAL_SECONDS: float = 3.0
+    SIMULATION_INTERVAL_MIN_SECONDS: float = 5.0
+    SIMULATION_INTERVAL_MAX_SECONDS: float = 7.0
     SIMULATION_TIME_STEPS: int = 30
 
     # Runtime support
     SUPPORTED_PYTHON_MAJOR: int = 3
     SUPPORTED_PYTHON_MINOR: int = 11
+
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def parse_debug_value(cls, value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            cleaned = value.strip().lower()
+            truthy = {"1", "true", "yes", "on", "debug", "dev", "development"}
+            falsy = {"0", "false", "no", "off", "release", "prod", "production"}
+            if cleaned in truthy:
+                return True
+            if cleaned in falsy:
+                return False
+        return bool(value)
+
+    @model_validator(mode="after")
+    def normalize_interval_bounds(self):
+        if self.SIMULATION_INTERVAL_MIN_SECONDS <= 0:
+            self.SIMULATION_INTERVAL_MIN_SECONDS = 5.0
+        if self.SIMULATION_INTERVAL_MAX_SECONDS <= 0:
+            self.SIMULATION_INTERVAL_MAX_SECONDS = 7.0
+        if self.SIMULATION_INTERVAL_MIN_SECONDS > self.SIMULATION_INTERVAL_MAX_SECONDS:
+            self.SIMULATION_INTERVAL_MIN_SECONDS, self.SIMULATION_INTERVAL_MAX_SECONDS = (
+                self.SIMULATION_INTERVAL_MAX_SECONDS,
+                self.SIMULATION_INTERVAL_MIN_SECONDS,
+            )
+        return self
 
     @property
     def supported_python_version(self) -> str:
@@ -52,6 +83,10 @@ class Settings(BaseSettings):
     @property
     def current_python_version(self) -> str:
         return f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+
+    @property
+    def simulation_interval_seconds(self) -> float:
+        return (self.SIMULATION_INTERVAL_MIN_SECONDS + self.SIMULATION_INTERVAL_MAX_SECONDS) / 2.0
 
     class Config:
         env_file = ".env"

@@ -61,6 +61,7 @@ export const sessions = {
     stop: (id) => request(`/api/sessions/${id}/stop`, { method: 'POST' }),
     report: (id) => request(`/api/sessions/${id}/report`),
     forPatient: (patientId) => request(`/api/sessions/patient/${patientId}`),
+    stats: () => request('/api/sessions/stats'),
 };
 
 // Predictions
@@ -88,10 +89,11 @@ export const explain = {
 
 // WebSocket
 export function connectMonitor(sessionId, onMessage, onError, onClose) {
-    const token = getToken();
     const ws = new WebSocket(`${WS_BASE}/ws/monitor/${sessionId}`);
 
-    ws.onopen = () => console.log('WebSocket connected');
+    ws.onopen = () => {
+        // connection established
+    };
     ws.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);

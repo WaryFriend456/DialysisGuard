@@ -50,7 +50,7 @@ function Sparkline({ data, accessor, dangerTest, baseColor, dangerColor }) {
     const range = max - min || 1;
 
     return (
-        <div className="flex h-14 items-end gap-[3px]">
+        <div className="flex h-14 items-end gap-0.75">
             {values.map((value, index) => {
                 const height = Math.max(6, ((value - min) / range) * 56);
                 const color = dangerTest?.(value) ? dangerColor : baseColor;
@@ -208,7 +208,7 @@ function MonitorContent() {
                     <section className="card p-6">
                         <p className="text-xs uppercase tracking-[0.2em] text-text-muted">Monitoring behavior</p>
                         <div className="mt-4 space-y-3 text-sm text-text-secondary">
-                            <p>Readings are delivered on a 3-5 second wall-clock cadence.</p>
+                            <p>Readings are delivered on a 5-7 second wall-clock cadence.</p>
                             <p>Leaving the monitor page no longer stops an active session.</p>
                             <p>Returning through the sidebar resumes the in-flight session instead of forcing a restart.</p>
                         </div>
@@ -225,82 +225,78 @@ function MonitorContent() {
                         </div>
                     )}
 
-                    <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-                        <div className="card p-6">
-                            <p className="text-xs uppercase tracking-[0.2em] text-text-muted">Patient context</p>
-                            <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                                <div>
-                                    <h2 className="text-3xl font-semibold text-text-primary">
-                                        {patient?.name || patientSummary?.name || 'Selected patient'}
-                                    </h2>
-                                    <p className="mt-2 text-sm text-text-secondary">
-                                        {patientLoading
-                                            ? 'Loading patient profile...'
-                                            : patient
-                                                ? `${patient.age} years · ${patient.gender} · ${patient.weight} kg · ${patient.disease_severity} severity`
-                                                : 'Patient profile unavailable'}
-                                    </p>
-                                    <p className="mt-2 text-xs uppercase tracking-wide text-text-muted">
-                                        Session state: {connected ? 'live' : hasActiveSession ? 'paused' : status}
-                                        {session ? ` · Step ${session.current_step || 0}/${session.total_steps || 30}` : ''}
-                                    </p>
-                                </div>
-                                <div className="flex flex-wrap gap-3">
-                                    {!hasActiveSession && (
-                                        <>
-                                            <button
-                                                onClick={() => handleStart(null)}
-                                                className="flex items-center gap-2 rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-bg-primary"
-                                            >
-                                                <Play className="h-4 w-4" />
-                                                Start monitoring
-                                            </button>
-                                            <button
-                                                onClick={() => handleStart('high')}
-                                                className="flex items-center gap-2 rounded-2xl border border-risk-high/30 bg-risk-high-bg px-4 py-3 text-sm font-medium text-risk-high"
-                                            >
-                                                <Zap className="h-4 w-4" />
-                                                High-risk demo
-                                            </button>
-                                        </>
+                    <section className="card p-6">
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-3">
+                                    <p className="text-xs uppercase tracking-[0.2em] text-text-muted">Patient context</p>
+                                    {connected && (
+                                        <span className="flex items-center gap-1.5 rounded-full bg-risk-low/10 px-2.5 py-0.5 text-[11px] font-semibold text-risk-low">
+                                            <span className="pulse-dot bg-risk-low" />
+                                            Live
+                                        </span>
                                     )}
                                     {hasActiveSession && !connected && (
-                                        <button
-                                            onClick={handleResume}
-                                            className="flex items-center gap-2 rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-bg-primary"
-                                        >
-                                            <MonitorDot className="h-4 w-4" />
-                                            Resume session
-                                        </button>
-                                    )}
-                                    {connected && (
-                                        <button
-                                            onClick={stopSession}
-                                            className="flex items-center gap-2 rounded-2xl border border-risk-critical/30 bg-risk-critical-bg px-4 py-3 text-sm font-semibold text-risk-critical"
-                                        >
-                                            <Square className="h-4 w-4" />
-                                            Stop session
-                                        </button>
+                                        <span className="flex items-center gap-1.5 rounded-full bg-risk-moderate/10 px-2.5 py-0.5 text-[11px] font-semibold text-risk-moderate">
+                                            Paused
+                                        </span>
                                     )}
                                 </div>
+                                <h2 className="mt-3 text-2xl font-semibold text-text-primary">
+                                    {patient?.name || patientSummary?.name || 'Selected patient'}
+                                </h2>
+                                <p className="mt-1.5 text-sm text-text-secondary">
+                                    {patientLoading
+                                        ? 'Loading patient profile\u2026'
+                                        : patient
+                                            ? `${patient.age} years \u00b7 ${patient.gender} \u00b7 ${patient.weight} kg \u00b7 ${patient.disease_severity} severity`
+                                            : 'Patient profile unavailable'}
+                                </p>
+                                {session && (
+                                    <p className="mt-1 text-xs uppercase tracking-wide text-text-muted">
+                                        Step {session.current_step || 0}/{session.total_steps || 30}
+                                        {data?.time_minutes != null ? ` \u00b7 ${data.time_minutes} min elapsed` : ''}
+                                        {alerts.length > 0 ? ` \u00b7 ${alerts.length} alert${alerts.length > 1 ? 's' : ''}` : ''}
+                                    </p>
+                                )}
                             </div>
-                        </div>
-
-                        <div className="card p-6">
-                            <p className="text-xs uppercase tracking-[0.2em] text-text-muted">Operational status</p>
-                            <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-                                <div className="rounded-3xl border border-border-subtle bg-surface px-4 py-4">
-                                    <p className="text-xs uppercase tracking-wide text-text-muted">Connection</p>
-                                    <p className="mt-2 text-xl font-semibold text-text-primary">{connected ? 'Live' : hasActiveSession ? 'Paused' : 'Idle'}</p>
-                                </div>
-                                <div className="rounded-3xl border border-border-subtle bg-surface px-4 py-4">
-                                    <p className="text-xs uppercase tracking-wide text-text-muted">Elapsed</p>
-                                    <p className="mt-2 text-xl font-semibold text-text-primary">{data?.time_minutes ?? 0} min</p>
-                                </div>
-                                <div className="rounded-3xl border border-border-subtle bg-surface px-4 py-4">
-                                    <p className="text-xs uppercase tracking-wide text-text-muted">Alerts</p>
-                                    <p className="mt-2 text-xl font-semibold text-text-primary">{alerts.length}</p>
-                                </div>
+                            <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
+                                {!hasActiveSession && (
+                                    <>
+                                        <button
+                                            onClick={() => handleStart(null)}
+                                            className="flex items-center gap-2 rounded-2xl bg-accent px-4 py-2.5 text-sm font-semibold text-bg-primary"
+                                        >
+                                            <Play className="h-4 w-4" />
+                                            Start monitoring
+                                        </button>
+                                        <button
+                                            onClick={() => handleStart('high')}
+                                            className="flex items-center gap-2 rounded-2xl border border-risk-high/30 bg-risk-high-bg px-4 py-2.5 text-sm font-medium text-risk-high"
+                                        >
+                                            <Zap className="h-4 w-4" />
+                                            High-risk demo
+                                        </button>
+                                    </>
+                                )}
+                                {hasActiveSession && !connected && (
+                                    <button
+                                        onClick={handleResume}
+                                        className="flex items-center gap-2 rounded-2xl bg-accent px-4 py-2.5 text-sm font-semibold text-bg-primary"
+                                    >
+                                        <MonitorDot className="h-4 w-4" />
+                                        Resume session
+                                    </button>
+                                )}
+                                {connected && (
+                                    <button
+                                        onClick={stopSession}
+                                        className="flex items-center gap-2 rounded-2xl border border-risk-critical/30 bg-risk-critical-bg px-4 py-2.5 text-sm font-semibold text-risk-critical"
+                                    >
+                                        <Square className="h-4 w-4" />
+                                        Stop session
+                                    </button>
+                                )}
                             </div>
                         </div>
                     </section>
@@ -467,7 +463,7 @@ function MonitorContent() {
                             <div className="mt-5">
                                 {latestXai?.attention_weights?.length ? (
                                     <>
-                                        <div className="flex h-32 items-end gap-[3px]">
+                                        <div className="flex h-32 items-end gap-0.75">
                                             {latestXai.attention_weights.map((weight, index) => {
                                                 const maxWeight = Math.max(...latestXai.attention_weights, 0.01);
                                                 return (
@@ -509,3 +505,4 @@ export default function MonitorPage() {
         </Suspense>
     );
 }
+

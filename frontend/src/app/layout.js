@@ -2,6 +2,7 @@ import './globals.css';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { MonitoringProvider } from '@/contexts/MonitoringContext';
+import { ThemeProvider } from '@/contexts/ThemeContext';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -21,11 +22,13 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" data-theme="dark">
       <body className={`${inter.variable} ${jetbrainsMono.variable}`}>
-        <AuthProvider>
-          <MonitoringProvider>{children}</MonitoringProvider>
-        </AuthProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <MonitoringProvider>{children}</MonitoringProvider>
+          </AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

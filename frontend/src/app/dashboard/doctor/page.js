@@ -3,10 +3,10 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import PageShell from '@/components/PageShell';
 import { useAuth } from '@/contexts/AuthContext';
-import { patients, alerts as alertsApi } from '@/lib/api';
+import { patients, alerts as alertsApi, sessions as sessionsApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import {
-    Users, Bell, BellOff, Activity, MonitorDot, UserPlus,
+    Users, Bell, BellOff, Activity, UserPlus,
     Brain, ArrowRight, Loader2,
 } from 'lucide-react';
 
@@ -18,6 +18,7 @@ export default function DoctorDashboard() {
     const [stats, setStats] = useState({ patients: 0, alerts: { total: 0, unacknowledged: 0, by_severity: {} } });
     const [patientList, setPatientList] = useState([]);
     const [recentAlerts, setRecentAlerts] = useState([]);
+    const [activeSessions, setActiveSessions] = useState(0);
 
     useEffect(() => { if (!loading && !user) router.push('/login'); }, [user, loading, router]);
 
@@ -26,6 +27,7 @@ export default function DoctorDashboard() {
             patients.list('limit=10').then(r => { setPatientList(r.patients || []); setStats(p => ({ ...p, patients: r.total || 0 })); }).catch(() => { });
             alertsApi.stats().then(r => setStats(p => ({ ...p, alerts: r }))).catch(() => { });
             alertsApi.list('limit=5').then(r => setRecentAlerts(r.alerts || [])).catch(() => { });
+            sessionsApi.stats().then(r => setActiveSessions(r.active_count || 0)).catch(() => { });
         }
     }, [user]);
 
@@ -44,7 +46,7 @@ export default function DoctorDashboard() {
             <div className="mb-7 grid grid-cols-4 gap-4">
                 {[
                     { label: 'Total Patients', value: stats.patients, icon: Users, color: 'text-accent' },
-                    { label: 'Active Sessions', value: 0, icon: Activity, color: 'text-risk-low' },
+                    { label: 'Active Sessions', value: activeSessions, icon: Activity, color: activeSessions > 0 ? 'text-risk-low' : 'text-text-muted' },
                     { label: 'Unack. Alerts', value: a.unacknowledged || 0, icon: BellOff, color: a.unacknowledged > 0 ? 'text-risk-critical' : 'text-text-muted' },
                     { label: 'Total Alerts', value: a.total || 0, icon: Bell, color: 'text-chart-5' },
                 ].map((s, i) => (
@@ -131,9 +133,6 @@ export default function DoctorDashboard() {
                 <div className="flex gap-3">
                     <button onClick={() => router.push('/patients?action=add')} className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg-primary hover:bg-accent-hover cursor-pointer">
                         <UserPlus className="h-4 w-4" /> Add Patient
-                    </button>
-                    <button onClick={() => router.push('/dashboard/command')} className="flex items-center gap-2 rounded-lg border border-border-subtle px-4 py-2 text-sm font-medium text-text-secondary hover:bg-surface-hover cursor-pointer">
-                        <MonitorDot className="h-4 w-4" /> Command Center
                     </button>
                     <button onClick={() => router.push('/model-info')} className="flex items-center gap-2 rounded-lg border border-border-subtle px-4 py-2 text-sm font-medium text-text-secondary hover:bg-surface-hover cursor-pointer">
                         <Brain className="h-4 w-4" /> Model Info

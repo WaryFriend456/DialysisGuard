@@ -25,13 +25,13 @@ class PhysiologicalSimulator:
     """
     
     RISK_PROFILES = {
-        "low": {"bp_drop_rate": 0.15, "event_prob": 0.02, "noise_scale": 1.0},
-        "moderate": {"bp_drop_rate": 0.30, "event_prob": 0.06, "noise_scale": 1.2},
-        "high": {"bp_drop_rate": 0.50, "event_prob": 0.12, "noise_scale": 1.5},
-        "critical": {"bp_drop_rate": 0.70, "event_prob": 0.20, "noise_scale": 1.8}
+        "low": {"bp_drop_rate": 0.18, "event_prob": 0.03, "noise_scale": 1.0},
+        "moderate": {"bp_drop_rate": 0.36, "event_prob": 0.09, "noise_scale": 1.25},
+        "high": {"bp_drop_rate": 1.1, "event_prob": 0.30, "noise_scale": 1.8},
+        "critical": {"bp_drop_rate": 1.6, "event_prob": 0.42, "noise_scale": 2.2}
     }
     
-    RISK_WEIGHTS = {"low": 0.40, "moderate": 0.35, "high": 0.20, "critical": 0.05}
+    RISK_WEIGHTS = {"low": 0.26, "moderate": 0.38, "high": 0.26, "critical": 0.10}
     
     TIME_STEPS = 30
     TIME_INTERVAL = 8  # minutes between readings
@@ -306,18 +306,18 @@ class PhysiologicalSimulator:
         bp_std = np.std(bps) if np.std(bps) > 0 else 1.0
         bp_z = abs(current_step["Current_BP"] - bp_mean) / bp_std
         
-        if bp_z > 2.0:
+        if bp_z > 1.8:
             anomalies.append({
                 "feature": "Current_BP",
                 "type": "statistical_outlier",
-                "severity": "warning" if bp_z < 3.0 else "critical",
+                "severity": "warning" if bp_z < 2.8 else "critical",
                 "z_score": round(float(bp_z), 2),
                 "value": current_step["Current_BP"],
                 "mean": round(float(bp_mean), 1)
             })
         
         # Rate of change detection (sudden BP drop)
-        if abs(current_step.get("BP_Change", 0)) > 12:
+        if abs(current_step.get("BP_Change", 0)) > 10:
             anomalies.append({
                 "feature": "Current_BP",
                 "type": "rapid_decline" if current_step["BP_Change"] < 0 else "rapid_increase",
@@ -331,27 +331,27 @@ class PhysiologicalSimulator:
         hr_std = np.std(hrs) if np.std(hrs) > 0 else 1.0
         hr_z = abs(current_step["Current_HR"] - hr_mean) / hr_std
         
-        if hr_z > 2.0:
+        if hr_z > 1.8:
             anomalies.append({
                 "feature": "Current_HR",
                 "type": "statistical_outlier",
-                "severity": "warning" if hr_z < 3.0 else "critical",
+                "severity": "warning" if hr_z < 2.8 else "critical",
                 "z_score": round(float(hr_z), 2),
                 "value": current_step["Current_HR"],
                 "mean": round(float(hr_mean), 1)
             })
         
         # Tachycardia detection
-        if current_step["Current_HR"] > 110:
+        if current_step["Current_HR"] > 105:
             anomalies.append({
                 "feature": "Current_HR",
                 "type": "tachycardia",
-                "severity": "warning" if current_step["Current_HR"] < 120 else "critical",
+                "severity": "warning" if current_step["Current_HR"] < 118 else "critical",
                 "value": current_step["Current_HR"]
             })
         
         # Hypotension detection
-        if current_step["Current_BP"] < 80:
+        if current_step["Current_BP"] < 85:
             anomalies.append({
                 "feature": "Current_BP",
                 "type": "hypotension",

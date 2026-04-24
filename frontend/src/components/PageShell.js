@@ -3,15 +3,16 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Menu, MonitorDot } from 'lucide-react';
+import { Laptop, Menu, MonitorDot, Moon, Sun } from 'lucide-react';
 import Sidebar from './Sidebar';
 import { useMonitoring } from '@/contexts/MonitoringContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { cn } from '@/lib/utils';
+import { useTheme } from '@/contexts/ThemeContext';
 
 const pageTitles = [
     { prefix: '/dashboard/doctor', title: 'Doctor Dashboard', description: 'Operational overview for physicians and senior clinicians.' },
     { prefix: '/dashboard/caregiver', title: 'Caregiver Dashboard', description: 'Focused queue for bedside monitoring and alert response.' },
-    { prefix: '/dashboard/command', title: 'Command Center', description: 'Secondary room overview for concurrent patient supervision.' },
     { prefix: '/patients', title: 'Patients', description: 'Clinical profiles, dialysis baselines, and monitoring history.' },
     { prefix: '/monitor', title: 'Monitoring', description: 'Live vitals, risk progression, alerts, and explainability.' },
     { prefix: '/alerts', title: 'Alerts', description: 'Review and acknowledge hemodynamic risk alerts.' },
@@ -22,15 +23,22 @@ export default function PageShell({ children }) {
     const pathname = usePathname();
     const { user } = useAuth();
     const { session, patientSummary, hasActiveSession } = useMonitoring();
+    const { preference, setPreference } = useTheme();
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
     const pageMeta = useMemo(
         () => pageTitles.find((item) => pathname.startsWith(item.prefix)) || pageTitles[0],
         [pathname]
     );
+    const isResumable = Boolean(
+        hasActiveSession &&
+        session?.id &&
+        session?.can_resume &&
+        (session?.current_step || 0) < (session?.total_steps || 30)
+    );
 
     return (
-        <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(6,182,212,0.12),transparent_28%),radial-gradient(circle_at_top_right,rgba(249,115,22,0.08),transparent_22%),var(--color-bg-primary)]">
+        <div className="min-h-screen bg-bg-primary">
             <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
             <div className="lg:pl-72">
@@ -49,14 +57,51 @@ export default function PageShell({ children }) {
                                     <h1 className="text-2xl font-semibold text-text-primary">{pageMeta.title}</h1>
                                 </div>
                             </div>
-                            <div className="hidden rounded-2xl border border-border-subtle bg-surface px-4 py-2 text-right sm:block">
-                                <p className="text-sm font-medium text-text-primary">{user?.name}</p>
-                                <p className="text-xs text-text-muted">Demo mode</p>
+                            <div className="hidden items-center gap-3 rounded-2xl border border-border-subtle bg-surface px-3 py-2 sm:flex">
+                                <div className="text-right">
+                                    <p className="text-sm font-medium text-text-primary">{user?.name}</p>
+                                    <p className="text-xs uppercase tracking-[0.14em] text-text-muted">Clinical workspace</p>
+                                </div>
+                                <div className="flex items-center rounded-xl border border-border-subtle bg-bg-secondary p-1">
+                                    <button
+                                        onClick={() => setPreference('light')}
+                                        className={cn(
+                                            'rounded-lg p-1.5 text-text-muted transition-colors',
+                                            preference === 'light' && 'bg-surface text-text-primary'
+                                        )}
+                                        title="Light theme"
+                                        aria-label="Light theme"
+                                    >
+                                        <Sun className="h-4 w-4" />
+                                    </button>
+                                    <button
+                                        onClick={() => setPreference('dark')}
+                                        className={cn(
+                                            'rounded-lg p-1.5 text-text-muted transition-colors',
+                                            preference === 'dark' && 'bg-surface text-text-primary'
+                                        )}
+                                        title="Dark theme"
+                                        aria-label="Dark theme"
+                                    >
+                                        <Moon className="h-4 w-4" />
+                                    </button>
+                                    <button
+                                        onClick={() => setPreference('system')}
+                                        className={cn(
+                                            'rounded-lg p-1.5 text-text-muted transition-colors',
+                                            preference === 'system' && 'bg-surface text-text-primary'
+                                        )}
+                                        title="System theme"
+                                        aria-label="System theme"
+                                    >
+                                        <Laptop className="h-4 w-4" />
+                                    </button>
+                                </div>
                             </div>
                         </div>
                         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                             <p className="max-w-3xl text-sm text-text-secondary">{pageMeta.description}</p>
-                            {hasActiveSession && session && (
+                            {isResumable && session && (
                                 <Link
                                     href={`/monitor?patient=${session.patient_id}`}
                                     className="inline-flex items-center gap-2 rounded-2xl border border-accent/30 bg-accent/10 px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/15"

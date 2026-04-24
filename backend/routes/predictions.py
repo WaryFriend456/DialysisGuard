@@ -24,9 +24,10 @@ async def predict(data: PredictionRequest, user=Depends(get_current_user)):
     else:
         X = ml_service.preprocess_sequence([data.patient_data])
     
+    deterministic = ml_service.predict(X)
     uncertainty = ml_service.predict_with_uncertainty(X)
-    risk_prob = float(uncertainty['mean'])
-    risk_level = ml_service.get_risk_level(risk_prob)
+    risk_prob = float(deterministic["probability"])
+    risk_level = deterministic["risk_level"]
     
     return PredictionResponse(
         risk_probability=round(risk_prob, 4),
@@ -52,10 +53,10 @@ async def risk_assessment(data: PredictionRequest, user=Depends(get_current_user
     
     X = ml_service.preprocess_sequence(raw_data)
     
-    # Prediction with uncertainty
+    deterministic = ml_service.predict(X)
     uncertainty = ml_service.predict_with_uncertainty(X)
-    risk_prob = float(uncertainty['mean'])
-    risk_level = ml_service.get_risk_level(risk_prob)
+    risk_prob = float(deterministic["probability"])
+    risk_level = deterministic["risk_level"]
     
     # XAI data
     shap_data = xai_service.compute_shap_values(X)

@@ -58,6 +58,13 @@ async def create_session(data: SessionCreate, user=Depends(get_current_user)):
         sort=[("start_time", -1)]
     )
     if existing:
+        # If a new risk_profile was requested, update the existing session
+        if data.risk_profile and data.risk_profile != existing.get("risk_profile"):
+            db.sessions.update_one(
+                {"_id": existing["_id"]},
+                {"$set": {"risk_profile": data.risk_profile}}
+            )
+            existing["risk_profile"] = data.risk_profile
         return _session_response(existing, db)
     
     session_doc = {
@@ -79,6 +86,24 @@ async def create_session(data: SessionCreate, user=Depends(get_current_user)):
     result = db.sessions.insert_one(session_doc)
     session_doc["_id"] = result.inserted_id
     return _session_response(session_doc, db)
+
+
+@router.get("/stats")
+async def get_session_stats(user=Depends(get_current_user)):
+    """Get session statistics including active session count."""
+    db = get_database()
+    active_count = db.sessions.count_documents(
+        {"status": {"$in": [SessionStatus.ACTIVE.value, SessionStatus.PAUSED.value]}}
+    )
+    total_count = db.sessions.count_documents({})
+    completed_count = db.sessions.count_documents(
+        {"status": {"$in": [SessionStatus.COMPLETED.value, SessionStatus.STOPPED.value]}}
+    )
+    return {
+        "active_count": active_count,
+        "total_count": total_count,
+        "completed_count": completed_count,
+    }
 
 
 @router.get("/active/current")

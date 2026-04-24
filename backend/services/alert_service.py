@@ -23,9 +23,9 @@ class AlertService:
     
     # Risk thresholds for alert generation
     ALERT_THRESHOLDS = {
-        "MODERATE": 0.30,
-        "HIGH": 0.50,
-        "CRITICAL": 0.75,
+        "MODERATE": 0.28,
+        "HIGH": 0.48,
+        "CRITICAL": 0.72,
     }
     
     def should_alert(self, risk_prob: float, recent_alerts: list = None) -> Optional[str]:

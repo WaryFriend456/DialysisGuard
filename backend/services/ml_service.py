@@ -58,6 +58,52 @@ class MLService:
         self.n_static = int(self.feature_config.get("n_static", 21))
         self.n_temporal = int(self.feature_config.get("n_temporal", 11))
         self.categorical_features = self.feature_config.get("categorical_features", [])
+        self._oov_warning_cache = set()
+        self._categorical_defaults = {
+            "Gender": "Male",
+            "Kidney Failure Cause": "Other",
+            "Dialysate Composition": "Standard",
+            "Vascular Access Type": "Fistula",
+            "Dialyzer Type": "High-flux",
+            "Disease Severity": "Moderate",
+        }
+        self._categorical_aliases = {
+            "Gender": {
+                "m": "Male",
+                "male": "Male",
+                "f": "Female",
+                "female": "Female",
+            },
+            "Kidney Failure Cause": {
+                "diabetes": "Diabetes",
+                "hypertension": "Hypertension",
+                "glomerulonephritis": "Other",
+                "polycystic": "Other",
+                "other": "Other",
+            },
+            "Dialysate Composition": {
+                "standard": "Standard",
+                "custom": "Customized",
+                "customized": "Customized",
+            },
+            "Vascular Access Type": {
+                "fistula": "Fistula",
+                "graft": "Graft",
+                "catheter": "Catheter",
+            },
+            "Dialyzer Type": {
+                "high flux": "High-flux",
+                "high-flux": "High-flux",
+                "low flux": "Low-flux",
+                "low-flux": "Low-flux",
+            },
+            "Disease Severity": {
+                "mild": "Mild",
+                "moderate": "Moderate",
+                "severe": "Severe",
+                "critical": "Severe",
+            },
+        }
 
         self._warmup_model()
 
@@ -182,6 +228,35 @@ class MLService:
             self._attention_extractor(warmup_input, training=False)
         logger.info("Model warm-up completed")
 
+    def _warn_oov_category(self, feature: str, raw_value, mapped_value):
+        key = (feature, str(raw_value), str(mapped_value))
+        if key in self._oov_warning_cache:
+            return
+        self._oov_warning_cache.add(key)
+        logger.warning(
+            "OOV category for %s: %r -> %r",
+            feature,
+            raw_value,
+            mapped_value,
+        )
+
+    def _default_category_index(self, feature: str, encoder) -> int:
+        default_name = self._categorical_defaults.get(feature)
+        classes = list(getattr(encoder, "classes_", []))
+        if default_name in classes:
+            return int(encoder.transform([default_name])[0])
+        return 0
+
+    def _canonicalize_category(self, feature: str, value: str, encoder):
+        classes = list(getattr(encoder, "classes_", []))
+        normalized = value.strip().lower().replace("_", " ").replace("-", " ")
+        for item in classes:
+            item_norm = str(item).strip().lower().replace("_", " ").replace("-", " ")
+            if item_norm == normalized:
+                return str(item)
+        alias_map = self._categorical_aliases.get(feature, {})
+        return alias_map.get(normalized)
+
     def preprocess_sequence(self, raw_data: list) -> np.ndarray:
         """Convert raw simulation data to scaled model input."""
         if not self._initialized:
@@ -197,12 +272,33 @@ class MLService:
                 if feat in self.categorical_features:
                     encoder = self.label_encoders[feat]
                     if isinstance(val, str):
-                        if val in encoder.classes_:
+                        canonical = self._canonicalize_category(feat, val, encoder)
+                        if canonical and canonical in encoder.classes_:
+                            if canonical != val:
+                                self._warn_oov_category(feat, val, canonical)
+                            val = int(encoder.transform([canonical])[0])
+                        elif val in encoder.classes_:
                             val = int(encoder.transform([val])[0])
                         else:
-                            val = 0
+                            fallback_idx = self._default_category_index(feat, encoder)
+                            fallback_val = encoder.inverse_transform([fallback_idx])[0]
+                            self._warn_oov_category(feat, val, fallback_val)
+                            val = fallback_idx
                     else:
-                        val = int(val) if isinstance(val, (int, float)) else 0
+                        if isinstance(val, (int, float)):
+                            candidate = int(val)
+                            if 0 <= candidate < len(encoder.classes_):
+                                val = candidate
+                            else:
+                                fallback_idx = self._default_category_index(feat, encoder)
+                                fallback_val = encoder.inverse_transform([fallback_idx])[0]
+                                self._warn_oov_category(feat, val, fallback_val)
+                                val = fallback_idx
+                        else:
+                            fallback_idx = self._default_category_index(feat, encoder)
+                            fallback_val = encoder.inverse_transform([fallback_idx])[0]
+                            self._warn_oov_category(feat, val, fallback_val)
+                            val = fallback_idx
                 else:
                     try:
                         val = float(val)
@@ -336,7 +432,8 @@ class MLService:
             }
             for feat in (top_features or [])[:3]:
                 name = feat.get("name", "") if isinstance(feat, dict) else str(feat)
-                if name in feature_advice and feat.get("direction") == "risk_increasing":
+                direction = feat.get("direction") if isinstance(feat, dict) else None
+                if name in feature_advice and direction == "risk_increasing":
                     recs.append(feature_advice[name])
         return recs
 
