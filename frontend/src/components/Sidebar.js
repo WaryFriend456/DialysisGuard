@@ -2,11 +2,25 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Activity, Bell, Brain, LayoutDashboard, LogOut, MonitorDot, Users, X } from 'lucide-react';
+import { Activity, Bell, Brain, Building2, LayoutDashboard, LogOut, MonitorDot, UserCog, Users, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 
 const navItems = [
+    {
+        label: 'Organizations',
+        icon: Building2,
+        roles: ['super_admin'],
+        href: '/admin/organizations',
+        match: ['/admin/organizations'],
+    },
+    {
+        label: 'Staff',
+        icon: UserCog,
+        roles: ['org_admin'],
+        href: '/admin/staff',
+        match: ['/admin/staff'],
+    },
     {
         label: 'Dashboard',
         icon: LayoutDashboard,
@@ -17,39 +31,46 @@ const navItems = [
     {
         label: 'Dashboard',
         icon: LayoutDashboard,
-        roles: ['caregiver'],
-        href: '/dashboard/caregiver',
-        match: ['/dashboard/caregiver'],
+        roles: ['nurse'],
+        href: '/dashboard/nurse',
+        match: ['/dashboard/nurse'],
     },
     {
         label: 'Patients',
         icon: Users,
-        roles: ['doctor', 'caregiver'],
+        roles: ['org_admin', 'doctor', 'nurse'],
         href: '/patients',
         match: ['/patients'],
     },
     {
         label: 'Monitor',
         icon: MonitorDot,
-        roles: ['doctor', 'caregiver'],
+        roles: ['org_admin', 'doctor', 'nurse'],
         href: '/monitor',
         match: ['/monitor'],
     },
     {
         label: 'Alerts',
         icon: Bell,
-        roles: ['doctor', 'caregiver'],
+        roles: ['org_admin', 'doctor', 'nurse'],
         href: '/alerts',
         match: ['/alerts'],
     },
     {
         label: 'Model Info',
         icon: Brain,
-        roles: ['doctor'],
+        roles: ['org_admin', 'doctor'],
         href: '/model-info',
         match: ['/model-info'],
     },
 ];
+
+const roleLabels = {
+    super_admin: 'Super Admin',
+    org_admin: 'Hospital Admin',
+    doctor: 'Doctor',
+    nurse: 'Nurse',
+};
 
 export default function Sidebar({ open, onClose }) {
     const pathname = usePathname();
@@ -118,7 +139,8 @@ export default function Sidebar({ open, onClose }) {
                 <div className="border-t border-border-subtle px-4 py-4">
                     <div className="mb-4 rounded-2xl border border-border-subtle bg-surface px-4 py-3">
                         <p className="text-sm font-semibold text-text-primary">{user.name}</p>
-                        <p className="text-xs uppercase tracking-wide text-text-muted">{user.role}</p>
+                        <p className="text-xs uppercase tracking-wide text-text-muted">{roleLabels[user.role] || user.role}</p>
+                        {user.org_name && <p className="mt-1 text-xs text-text-muted">{user.org_name}</p>}
                     </div>
                     <button
                         onClick={logout}

@@ -9,7 +9,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from database import get_database
 from models.schemas import SessionCreate, SessionResponse, SessionStatus
-from routes.auth import get_current_user
+from routes.auth import require_org_user
 from config import settings
 
 router = APIRouter(prefix="/api/sessions", tags=["Sessions"])
@@ -32,18 +32,21 @@ def _session_response(session: dict, db) -> SessionResponse:
         can_resume=status in {SessionStatus.ACTIVE.value, SessionStatus.PAUSED.value} and current_step < total_steps,
         time_series_count=len(session.get("time_series_data", [])),
         prediction_count=len(session.get("predictions", [])),
-        alert_count=db.alerts.count_documents({"session_id": str(session["_id"])})
+        alert_count=db.alerts.count_documents({
+            "session_id": str(session["_id"]),
+            "org_id": session.get("org_id"),
+        })
     )
 
 
 @router.post("/", response_model=SessionResponse)
-async def create_session(data: SessionCreate, user=Depends(get_current_user)):
+async def create_session(data: SessionCreate, user=Depends(require_org_user)):
     """Start a new dialysis session for a patient."""
     db = get_database()
     
     # Verify patient exists
     try:
-        patient = db.patients.find_one({"_id": ObjectId(data.patient_id)})
+        patient = db.patients.find_one({"_id": ObjectId(data.patient_id), "org_id": user["org_id"]})
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid patient ID")
     
@@ -53,6 +56,7 @@ async def create_session(data: SessionCreate, user=Depends(get_current_user)):
     existing = db.sessions.find_one(
         {
             "patient_id": data.patient_id,
+            "org_id": user["org_id"],
             "status": {"$in": [SessionStatus.ACTIVE.value, SessionStatus.PAUSED.value]}
         },
         sort=[("start_time", -1)]
@@ -61,7 +65,7 @@ async def create_session(data: SessionCreate, user=Depends(get_current_user)):
         # If a new risk_profile was requested, update the existing session
         if data.risk_profile and data.risk_profile != existing.get("risk_profile"):
             db.sessions.update_one(
-                {"_id": existing["_id"]},
+                {"_id": existing["_id"], "org_id": user["org_id"]},
                 {"$set": {"risk_profile": data.risk_profile}}
             )
             existing["risk_profile"] = data.risk_profile
@@ -69,6 +73,7 @@ async def create_session(data: SessionCreate, user=Depends(get_current_user)):
     
     session_doc = {
         "patient_id": data.patient_id,
+        "org_id": user["org_id"],
         "started_by": user["id"],
         "start_time": datetime.utcnow().isoformat(),
         "end_time": None,
@@ -89,15 +94,15 @@ async def create_session(data: SessionCreate, user=Depends(get_current_user)):
 
 
 @router.get("/stats")
-async def get_session_stats(user=Depends(get_current_user)):
+async def get_session_stats(user=Depends(require_org_user)):
     """Get session statistics including active session count."""
     db = get_database()
     active_count = db.sessions.count_documents(
-        {"status": {"$in": [SessionStatus.ACTIVE.value, SessionStatus.PAUSED.value]}}
+        {"org_id": user["org_id"], "status": {"$in": [SessionStatus.ACTIVE.value, SessionStatus.PAUSED.value]}}
     )
-    total_count = db.sessions.count_documents({})
+    total_count = db.sessions.count_documents({"org_id": user["org_id"]})
     completed_count = db.sessions.count_documents(
-        {"status": {"$in": [SessionStatus.COMPLETED.value, SessionStatus.STOPPED.value]}}
+        {"org_id": user["org_id"], "status": {"$in": [SessionStatus.COMPLETED.value, SessionStatus.STOPPED.value]}}
     )
     return {
         "active_count": active_count,
@@ -109,11 +114,12 @@ async def get_session_stats(user=Depends(get_current_user)):
 @router.get("/active/current")
 async def get_current_active_session(
     patient_id: str | None = Query(default=None),
-    user=Depends(get_current_user)
+    user=Depends(require_org_user)
 ):
     """Get the most recent resumable session for the current user, optionally scoped to a patient."""
     db = get_database()
     query = {
+        "org_id": user["org_id"],
         "status": {"$in": [SessionStatus.ACTIVE.value, SessionStatus.PAUSED.value]}
     }
     if patient_id:
@@ -129,12 +135,12 @@ async def get_current_active_session(
 
 
 @router.get("/{session_id}", response_model=SessionResponse)
-async def get_session(session_id: str, user=Depends(get_current_user)):
+async def get_session(session_id: str, user=Depends(require_org_user)):
     """Get session details."""
     db = get_database()
     
     try:
-        session = db.sessions.find_one({"_id": ObjectId(session_id)})
+        session = db.sessions.find_one({"_id": ObjectId(session_id), "org_id": user["org_id"]})
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid session ID")
     
@@ -145,11 +151,14 @@ async def get_session(session_id: str, user=Depends(get_current_user)):
 
 
 @router.post("/{session_id}/stop")
-async def stop_session(session_id: str, user=Depends(get_current_user)):
+async def stop_session(session_id: str, user=Depends(require_org_user)):
     """Stop an active session and generate report."""
     db = get_database()
     
-    session = db.sessions.find_one({"_id": ObjectId(session_id)})
+    try:
+        session = db.sessions.find_one({"_id": ObjectId(session_id), "org_id": user["org_id"]})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid session ID")
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     
@@ -157,10 +166,10 @@ async def stop_session(session_id: str, user=Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Session is not active")
     
     # Generate auto-report
-    report = _generate_session_report(session, session_id)
+    report = _generate_session_report(session, session_id, user["org_id"])
     
     db.sessions.update_one(
-        {"_id": ObjectId(session_id)},
+        {"_id": ObjectId(session_id), "org_id": user["org_id"]},
         {"$set": {
             "status": SessionStatus.COMPLETED.value,
             "end_time": datetime.utcnow().isoformat(),
@@ -174,28 +183,38 @@ async def stop_session(session_id: str, user=Depends(get_current_user)):
 
 
 @router.get("/{session_id}/report")
-async def get_session_report(session_id: str, user=Depends(get_current_user)):
+async def get_session_report(session_id: str, user=Depends(require_org_user)):
     """Get auto-generated session report."""
     db = get_database()
     
-    session = db.sessions.find_one({"_id": ObjectId(session_id)})
+    try:
+        session = db.sessions.find_one({"_id": ObjectId(session_id), "org_id": user["org_id"]})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid session ID")
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     
     if not session.get("report"):
-        report = _generate_session_report(session, session_id)
+        report = _generate_session_report(session, session_id, user["org_id"])
         return report
     
     return session["report"]
 
 
 @router.get("/patient/{patient_id}")
-async def get_patient_sessions(patient_id: str, user=Depends(get_current_user)):
+async def get_patient_sessions(patient_id: str, user=Depends(require_org_user)):
     """Get all sessions for a patient."""
     db = get_database()
     
+    try:
+        patient = db.patients.find_one({"_id": ObjectId(patient_id), "org_id": user["org_id"]})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid patient ID")
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
     sessions = list(db.sessions.find(
-        {"patient_id": patient_id}
+        {"patient_id": patient_id, "org_id": user["org_id"]}
     ).sort("start_time", -1))
     
     result = []
@@ -205,13 +224,16 @@ async def get_patient_sessions(patient_id: str, user=Depends(get_current_user)):
     return {"sessions": result}
 
 
-def _generate_session_report(session: dict, session_id: str) -> dict:
+def _generate_session_report(session: dict, session_id: str, org_id: str | None = None) -> dict:
     """Auto-generate comprehensive session report."""
     db = get_database()
     
     predictions = session.get("predictions", [])
     time_series = session.get("time_series_data", [])
-    alerts = list(db.alerts.find({"session_id": session_id}))
+    alert_query = {"session_id": session_id}
+    if org_id:
+        alert_query["org_id"] = org_id
+    alerts = list(db.alerts.find(alert_query))
     
     # Calculate statistics
     risk_values = [p.get("risk_probability", 0) for p in predictions]

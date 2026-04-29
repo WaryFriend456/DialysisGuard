@@ -109,6 +109,8 @@ function PatientsContent() {
         }
     };
 
+    const canManagePatients = ['org_admin', 'doctor'].includes(user?.role);
+
     if (authLoading || !user) {
         return (
             <div className="flex min-h-screen items-center justify-center bg-bg-primary">
@@ -128,13 +130,15 @@ function PatientsContent() {
                             Every patient card now routes to a real detail page, with history and monitoring available from there.
                         </p>
                     </div>
-                    <button
-                        onClick={() => setShowAddModal(true)}
-                        className="inline-flex items-center gap-2 rounded-2xl bg-accent px-5 py-3 text-sm font-semibold text-bg-primary"
-                    >
-                        <Plus className="h-4 w-4" />
-                        Add patient
-                    </button>
+                    {canManagePatients && (
+                        <button
+                            onClick={() => setShowAddModal(true)}
+                            className="inline-flex items-center gap-2 rounded-2xl bg-accent px-5 py-3 text-sm font-semibold text-bg-primary"
+                        >
+                            <Plus className="h-4 w-4" />
+                            Add patient
+                        </button>
+                    )}
                 </div>
 
                 <div className="mt-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -228,7 +232,7 @@ function PatientsContent() {
                 )}
             </section>
 
-            {showAddModal && (
+            {showAddModal && canManagePatients && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm">
                     <div className="card max-h-[90vh] w-full max-w-3xl overflow-y-auto p-6">
                         <div className="flex items-center justify-between">

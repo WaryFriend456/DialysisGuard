@@ -9,9 +9,9 @@ from models.schemas import (
     SHAPRequest, SHAPResponse, AttentionResponse,
     WhatIfRequest, WhatIfResponse,
     CounterfactualRequest, CounterfactualResponse,
-    SensitivityResponse
+    SensitivityResponse, UserRole
 )
-from routes.auth import get_current_user
+from routes.auth import require_org_user, require_roles
 from services.ml_service import ml_service
 from services.xai_service import xai_service
 
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/explain", tags=["Explainable AI"])
 
 
 @router.post("/shap")
-async def get_shap(data: SHAPRequest, user=Depends(get_current_user)):
+async def get_shap(data: SHAPRequest, user=Depends(require_org_user)):
     """Get SHAP feature attributions for a prediction."""
     raw_data = [{k: v for k, v in zip(ml_service.feature_config['feature_names'], step)}
                 for step in data.sequence]
@@ -28,7 +28,7 @@ async def get_shap(data: SHAPRequest, user=Depends(get_current_user)):
 
 
 @router.post("/attention")
-async def get_attention(data: SHAPRequest, user=Depends(get_current_user)):
+async def get_attention(data: SHAPRequest, user=Depends(require_org_user)):
     """Get temporal attention weights."""
     raw_data = [{k: v for k, v in zip(ml_service.feature_config['feature_names'], step)}
                 for step in data.sequence]
@@ -37,7 +37,7 @@ async def get_attention(data: SHAPRequest, user=Depends(get_current_user)):
 
 
 @router.post("/what-if")
-async def what_if(data: WhatIfRequest, user=Depends(get_current_user)):
+async def what_if(data: WhatIfRequest, user=Depends(require_org_user)):
     """What-If analysis: modify parameters and see risk change."""
     raw_data = [data.patient_data]
     X = ml_service.preprocess_sequence(raw_data)
@@ -45,7 +45,7 @@ async def what_if(data: WhatIfRequest, user=Depends(get_current_user)):
 
 
 @router.post("/counterfactual")
-async def counterfactual(data: CounterfactualRequest, user=Depends(get_current_user)):
+async def counterfactual(data: CounterfactualRequest, user=Depends(require_org_user)):
     """Find minimal changes to achieve target risk level."""
     raw_data = [data.patient_data]
     X = ml_service.preprocess_sequence(raw_data)
@@ -53,7 +53,7 @@ async def counterfactual(data: CounterfactualRequest, user=Depends(get_current_u
 
 
 @router.post("/sensitivity")
-async def sensitivity(data: SHAPRequest, user=Depends(get_current_user)):
+async def sensitivity(data: SHAPRequest, user=Depends(require_org_user)):
     """Feature sensitivity analysis."""
     raw_data = [{k: v for k, v in zip(ml_service.feature_config['feature_names'], step)}
                 for step in data.sequence]
@@ -62,6 +62,6 @@ async def sensitivity(data: SHAPRequest, user=Depends(get_current_user)):
 
 
 @router.get("/model-card")
-async def model_card(user=Depends(get_current_user)):
+async def model_card(user=Depends(require_roles(UserRole.ORG_ADMIN.value, UserRole.DOCTOR.value))):
     """Get model transparency card."""
     return xai_service.get_model_card()

@@ -1,8 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Laptop, Menu, MonitorDot, Moon, Sun } from 'lucide-react';
 import Sidebar from './Sidebar';
 import { useMonitoring } from '@/contexts/MonitoringContext';
@@ -11,16 +11,26 @@ import { cn } from '@/lib/utils';
 import { useTheme } from '@/contexts/ThemeContext';
 
 const pageTitles = [
+    { prefix: '/admin/organizations', title: 'Organizations', description: 'Create hospitals and manage organization administrators.' },
+    { prefix: '/admin/staff', title: 'Staff', description: 'Manage doctors and nurses in your hospital.' },
     { prefix: '/dashboard/doctor', title: 'Doctor Dashboard', description: 'Operational overview for physicians and senior clinicians.' },
-    { prefix: '/dashboard/caregiver', title: 'Caregiver Dashboard', description: 'Focused queue for bedside monitoring and alert response.' },
+    { prefix: '/dashboard/nurse', title: 'Nurse Dashboard', description: 'Focused queue for bedside monitoring and alert response.' },
     { prefix: '/patients', title: 'Patients', description: 'Clinical profiles, dialysis baselines, and monitoring history.' },
     { prefix: '/monitor', title: 'Monitoring', description: 'Live vitals, risk progression, alerts, and explainability.' },
     { prefix: '/alerts', title: 'Alerts', description: 'Review and acknowledge hemodynamic risk alerts.' },
     { prefix: '/model-info', title: 'Model Transparency', description: 'Reference material for model behavior, data, and limitations.' },
 ];
 
+const roleLabels = {
+    super_admin: 'Super Admin',
+    org_admin: 'Hospital Admin',
+    doctor: 'Doctor',
+    nurse: 'Nurse',
+};
+
 export default function PageShell({ children }) {
     const pathname = usePathname();
+    const router = useRouter();
     const { user } = useAuth();
     const { session, patientSummary, hasActiveSession } = useMonitoring();
     const { preference, setPreference } = useTheme();
@@ -36,6 +46,12 @@ export default function PageShell({ children }) {
         session?.can_resume &&
         (session?.current_step || 0) < (session?.total_steps || 30)
     );
+
+    useEffect(() => {
+        if (user?.must_change_password && pathname !== '/change-password') {
+            router.push('/change-password');
+        }
+    }, [pathname, router, user]);
 
     return (
         <div className="min-h-screen bg-bg-primary">
@@ -53,14 +69,17 @@ export default function PageShell({ children }) {
                                     <Menu className="h-5 w-5" />
                                 </button>
                                 <div>
-                                    <p className="text-xs uppercase tracking-[0.2em] text-text-muted">{user?.role || 'workspace'}</p>
+                                    <p className="text-xs uppercase tracking-[0.2em] text-text-muted">
+                                        {roleLabels[user?.role] || user?.role || 'Workspace'}
+                                        {user?.org_name ? ` · ${user.org_name}` : ''}
+                                    </p>
                                     <h1 className="text-2xl font-semibold text-text-primary">{pageMeta.title}</h1>
                                 </div>
                             </div>
                             <div className="hidden items-center gap-3 rounded-2xl border border-border-subtle bg-surface px-3 py-2 sm:flex">
                                 <div className="text-right">
                                     <p className="text-sm font-medium text-text-primary">{user?.name}</p>
-                                    <p className="text-xs uppercase tracking-[0.14em] text-text-muted">Clinical workspace</p>
+                                    <p className="text-xs uppercase tracking-[0.14em] text-text-muted">{user?.org_name || roleLabels[user?.role] || 'Workspace'}</p>
                                 </div>
                                 <div className="flex items-center rounded-xl border border-border-subtle bg-bg-secondary p-1">
                                     <button

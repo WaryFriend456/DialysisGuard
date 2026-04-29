@@ -12,7 +12,7 @@ import traceback
 from datetime import datetime
 
 from bson import ObjectId
-from fastapi import WebSocket, WebSocketDisconnect
+from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -23,6 +23,7 @@ from services.alert_service import alert_service
 from services.ml_service import ml_service
 from services.simulation_service import simulator
 from services.xai_service import xai_service
+from routes.auth import decode_token
 
 
 logger = logging.getLogger("dialysisguard.realtime")
@@ -68,13 +69,35 @@ def _normalize_saved_steps(saved_steps: list) -> list:
 
 async def websocket_monitor(websocket: WebSocket, session_id: str):
     """Stream monitoring updates for a resumable session."""
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.accept()
+        await _safe_send(websocket, {"type": "error", "message": "Unauthorized"})
+        await websocket.close()
+        return
+
+    try:
+        user = decode_token(token)
+    except HTTPException:
+        await websocket.accept()
+        await _safe_send(websocket, {"type": "error", "message": "Unauthorized"})
+        await websocket.close()
+        return
+
+    if user.get("role") == "super_admin" or not user.get("org_id") or user.get("must_change_password"):
+        await websocket.accept()
+        await _safe_send(websocket, {"type": "error", "message": "Unauthorized"})
+        await websocket.close()
+        return
+
     await manager.connect(websocket, session_id)
     db = get_database()
     completed_normally = False
+    org_id = user["org_id"]
 
     try:
         try:
-            session = db.sessions.find_one({"_id": ObjectId(session_id)})
+            session = db.sessions.find_one({"_id": ObjectId(session_id), "org_id": org_id})
         except Exception:
             session = None
 
@@ -86,7 +109,7 @@ async def websocket_monitor(websocket: WebSocket, session_id: str):
             await _safe_send(websocket, {"type": "error", "message": "Session is no longer resumable"})
             return
 
-        patient = db.patients.find_one({"_id": ObjectId(session["patient_id"])})
+        patient = db.patients.find_one({"_id": ObjectId(session["patient_id"]), "org_id": org_id})
         if not patient:
             await _safe_send(websocket, {"type": "error", "message": "Patient not found"})
             return
@@ -103,10 +126,10 @@ async def websocket_monitor(websocket: WebSocket, session_id: str):
             float(pred.get("risk_probability", 0.0))
             for pred in session.get("predictions", [])
         ]
-        session_alerts = alert_service.get_session_alerts(session_id)
+        session_alerts = alert_service.get_session_alerts(session_id, org_id)
 
         db.sessions.update_one(
-            {"_id": ObjectId(session_id)},
+            {"_id": ObjectId(session_id), "org_id": org_id},
             {
                 "$set": {
                     "status": SessionStatus.ACTIVE.value,
@@ -178,6 +201,7 @@ async def websocket_monitor(websocket: WebSocket, session_id: str):
                     alert_doc = alert_service.create_alert(
                         session_id=session_id,
                         patient_id=str(patient["_id"]),
+                        org_id=org_id,
                         severity=severity,
                         risk_prob=risk_prob,
                         confidence=uncertainty,
@@ -193,7 +217,7 @@ async def websocket_monitor(websocket: WebSocket, session_id: str):
                         "escalation_level": int(alert_doc.get("escalation_level", 0)),
                     }
 
-                escalated = alert_service.check_escalation(session_id)
+                escalated = alert_service.check_escalation(session_id, org_id)
                 escalation_alerts = [
                     {
                         "id": str(item.get("_id", "")),
@@ -240,7 +264,7 @@ async def websocket_monitor(websocket: WebSocket, session_id: str):
                 }
 
                 db.sessions.update_one(
-                    {"_id": ObjectId(session_id)},
+                    {"_id": ObjectId(session_id), "org_id": org_id},
                     {
                         "$set": {
                             "current_step": step + 1,
@@ -286,11 +310,11 @@ async def websocket_monitor(websocket: WebSocket, session_id: str):
                 )
                 break
 
-        latest_session = db.sessions.find_one({"_id": ObjectId(session_id)})
+        latest_session = db.sessions.find_one({"_id": ObjectId(session_id), "org_id": org_id})
         if latest_session and int(latest_session.get("current_step", 0)) >= total_steps:
             completed_normally = True
             db.sessions.update_one(
-                {"_id": ObjectId(session_id)},
+                {"_id": ObjectId(session_id), "org_id": org_id},
                 {
                     "$set": {
                         "status": SessionStatus.COMPLETED.value,
@@ -317,7 +341,7 @@ async def websocket_monitor(websocket: WebSocket, session_id: str):
     finally:
         manager.disconnect(session_id)
         try:
-            session = db.sessions.find_one({"_id": ObjectId(session_id)})
+            session = db.sessions.find_one({"_id": ObjectId(session_id), "org_id": org_id})
             if not session:
                 return
 
@@ -334,7 +358,7 @@ async def websocket_monitor(websocket: WebSocket, session_id: str):
 
             if completed_normally or current_step >= total_steps:
                 db.sessions.update_one(
-                    {"_id": ObjectId(session_id)},
+                    {"_id": ObjectId(session_id), "org_id": org_id},
                     {
                         "$set": {
                             "status": SessionStatus.COMPLETED.value,
@@ -344,7 +368,7 @@ async def websocket_monitor(websocket: WebSocket, session_id: str):
                 )
             else:
                 db.sessions.update_one(
-                    {"_id": ObjectId(session_id)},
+                    {"_id": ObjectId(session_id), "org_id": org_id},
                     {
                         "$set": {
                             "status": SessionStatus.PAUSED.value,

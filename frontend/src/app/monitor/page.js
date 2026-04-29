@@ -19,7 +19,7 @@ import {
     Zap,
 } from 'lucide-react';
 import PageShell from '@/components/PageShell';
-import { useAuth } from '@/contexts/AuthContext';
+import { dashboardPathForRole, useAuth } from '@/contexts/AuthContext';
 import { useMonitoring } from '@/contexts/MonitoringContext';
 import { alerts as alertsApi, patients as patientsApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -196,7 +196,7 @@ function MonitorContent() {
                                 <p className="mt-2 text-bg-primary/80">Choose a patient profile and launch bedside monitoring.</p>
                             </button>
                             <button
-                                onClick={() => router.push(user.role === 'doctor' ? '/dashboard/doctor' : '/dashboard/caregiver')}
+                                onClick={() => router.push(dashboardPathForRole(user.role))}
                                 className="rounded-3xl border border-border-subtle bg-surface px-5 py-4 text-left text-sm font-medium text-text-primary transition-transform hover:-translate-y-0.5"
                             >
                                 <p className="text-base font-semibold">Return to dashboard</p>
@@ -505,4 +505,3 @@ export default function MonitorPage() {
         </Suspense>
     );
 }
-

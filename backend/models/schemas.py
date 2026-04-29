@@ -12,8 +12,10 @@ from enum import Enum
 # ========================
 
 class UserRole(str, Enum):
+    SUPER_ADMIN = "super_admin"
+    ORG_ADMIN = "org_admin"
     DOCTOR = "doctor"
-    CAREGIVER = "caregiver"
+    NURSE = "nurse"
 
 
 class SessionStatus(str, Enum):
@@ -52,11 +54,20 @@ class UserLogin(BaseModel):
     password: str
 
 
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(..., min_length=6)
+
+
 class UserResponse(BaseModel):
     id: str
     name: str
     email: str
     role: UserRole
+    org_id: Optional[str] = None
+    org_name: Optional[str] = None
+    status: str = "active"
+    must_change_password: bool = False
     created_at: Optional[str] = None
 
 
@@ -64,6 +75,58 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+# ========================
+# Organization / Admin Schemas
+# ========================
+
+class OrganizationCreate(BaseModel):
+    name: str = Field(..., min_length=2, max_length=150)
+    code: str = Field(..., min_length=2, max_length=50)
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[EmailStr] = None
+
+
+class OrganizationUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=2, max_length=150)
+    code: Optional[str] = Field(default=None, min_length=2, max_length=50)
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[EmailStr] = None
+
+
+class OrganizationResponse(BaseModel):
+    id: str
+    name: str
+    code: str
+    status: str = "active"
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    staff_count: int = 0
+    patient_count: int = 0
+    created_by: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class AdminUserCreate(BaseModel):
+    name: str = Field(..., min_length=2, max_length=100)
+    email: EmailStr
+    role: UserRole
+
+
+class AdminUserUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=2, max_length=100)
+    email: Optional[EmailStr] = None
+    role: Optional[UserRole] = None
+
+
+class CreatedUserResponse(BaseModel):
+    user: UserResponse
+    temporary_password: str
 
 
 # ========================
@@ -113,6 +176,7 @@ class PatientUpdate(BaseModel):
 
 class PatientResponse(BaseModel):
     id: str
+    org_id: Optional[str] = None
     name: Optional[str] = None
     age: int
     gender: str

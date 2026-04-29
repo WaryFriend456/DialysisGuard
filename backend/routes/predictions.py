@@ -6,7 +6,7 @@ import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models.schemas import PredictionRequest, PredictionResponse
-from routes.auth import get_current_user
+from routes.auth import require_org_user
 from services.ml_service import ml_service
 from services.xai_service import xai_service
 
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/predict", tags=["Predictions"])
 
 
 @router.post("/", response_model=PredictionResponse)
-async def predict(data: PredictionRequest, user=Depends(get_current_user)):
+async def predict(data: PredictionRequest, user=Depends(require_org_user)):
     """Single prediction with uncertainty."""
     if data.sequence:
         X = ml_service.preprocess_sequence(
@@ -43,7 +43,7 @@ async def predict(data: PredictionRequest, user=Depends(get_current_user)):
 
 
 @router.post("/risk-assessment")
-async def risk_assessment(data: PredictionRequest, user=Depends(get_current_user)):
+async def risk_assessment(data: PredictionRequest, user=Depends(require_org_user)):
     """Full risk assessment with XAI data."""
     if data.sequence:
         raw_data = [{k: v for k, v in zip(ml_service.feature_config['feature_names'], step)}

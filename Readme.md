@@ -2,16 +2,64 @@
 
 ## Overview
 
-**DialysisGuard** is an AI-driven real-time monitoring and adverse event prediction system for hemodialysis. The system uses a GRU (Gated Recurrent Unit) deep learning model trained on temporal physiological data to predict patient instability during dialysis sessions.
+**DialysisGuard** is an enterprise-grade AI-driven real-time monitoring and adverse event prediction system for hemodialysis. The system uses a GRU (Gated Recurrent Unit) deep learning model trained on temporal physiological data to predict patient instability during dialysis sessions.
 
 The system features:
 - A GRU model **trained on `synthetic_hemodialysis_timeseries.csv`** (5000 patients × 30 time steps)
 - **Explainable AI (XAI)** — 7 techniques making every prediction transparent and actionable
 - A **FastAPI** backend with REST APIs and WebSocket support
+- **Enterprise role-based access control** — Super Admin → Organization Admin → Doctors/Nurses
 - A MongoDB database for persistent storage
 - A **physiologically realistic simulation engine** that generates random but clinically plausible vital trajectories
 - A Next.js frontend with dual-theme clinical UI (light/dark), role-based dashboards, real-time monitoring, XAI, and alerts
 - **8 innovative features** pushing beyond standard monitoring (predictive forecasting, smart escalation, anomaly detection, etc.)
+
+---
+
+## Role Hierarchy & Access Control
+
+DialysisGuard implements a 4-tier role-based access control system:
+
+### 1. **SUPER_ADMIN** (Platform Level)
+- **Permissions**: 
+  - Create and manage Organizations
+  - Create and manage Organization Admins
+  - Suspend/activate organizations
+  - Disable/reset passwords for any user
+  - View all organizations and their staff/patient counts
+  - Access platform administration dashboard
+- **Cannot access**: Clinical workspace (patient monitoring, sessions)
+- **Database field**: `role = "super_admin"`
+
+### 2. **ORG_ADMIN** (Organization Level)
+- **Permissions**:
+  - Manage staff (Doctors and Nurses) in their organization
+  - Create, update, disable, and activate staff accounts
+  - View organization summary and statistics
+  - Reset staff passwords
+  - Access organization admin dashboard
+- **Cannot access**: Clinical workspace unless they are also assigned a clinical role
+- **Database field**: `role = "org_admin"`, `org_id = <organization_id>`
+
+### 3. **DOCTOR** (Clinical Level)
+- **Permissions**:
+  - View all patients in their organization
+  - Create and manage patient records
+  - Start and monitor dialysis sessions
+  - Access full explainable AI features
+  - Receive and acknowledge alerts
+  - View session reports
+- **Cannot access**: User management, organization settings
+- **Database field**: `role = "doctor"`, `org_id = <organization_id>`
+
+### 4. **NURSE** (Clinical Level)
+- **Permissions**:
+  - Similar to Doctor but with organization-scoped access
+  - Monitor dialysis sessions (view-only or edit based on settings)
+  - Receive alerts
+  - Assist with patient monitoring
+- **Cannot access**: Advanced analytics, organization administration
+- **Database field**: `role = "nurse"`, `org_id = <organization_id>`
 
 ---
 
@@ -23,7 +71,7 @@ Use these versions for a reliable first run:
 - Node.js `LTS` (`18+`, `20+`, or newer LTS)
 - MongoDB running locally on `mongodb://localhost:27017`
 
-### Backend
+### Backend Setup
 
 ```bash
 cd backend
@@ -31,28 +79,12 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 copy .env.example .env
+# Edit .env to set super admin credentials
 python scripts/preflight.py
 uvicorn main:app --reload --port 8000
 ```
 
-Preflight checks:
-- Python/TensorFlow runtime compatibility
-- Required model artifacts
-- Encoder/config consistency
-- MongoDB connectivity
-
-Key environment variables (see `backend/.env.example`):
-
-```bash
-DEBUG=true
-MONGODB_URI=mongodb://localhost:27017
-MONGODB_DB=dialysisguard
-JWT_SECRET=change-this-before-production
-SIMULATION_INTERVAL_MIN_SECONDS=5
-SIMULATION_INTERVAL_MAX_SECONDS=7
-```
-
-### Frontend
+### Frontend Setup
 
 ```bash
 cd frontend
@@ -60,12 +92,718 @@ npm install
 npm run dev
 ```
 
-### Notes
+---
 
-- Monitoring now runs on a realistic jittered cadence (5-7 seconds per step).
-- Session resume chips/buttons only appear for truly resumable sessions (`current_step < total_steps`).
-- `/dashboard/command` is kept for backward compatibility and now redirects to `/patients`.
-- `DEBUG` parsing is tolerant to common values like `true`, `false`, `dev`, `release`.
+## Step-by-Step: Creating Users & Organizations
+
+### Prerequisites
+
+Before you can create any users, you need to **boot the backend and seed the super admin account**.
+
+#### Step 1: Configure Super Admin in .env
+
+Edit `backend/.env` and add:
+
+```bash
+DEBUG=true
+MONGODB_URI=mongodb://localhost:27017
+MONGODB_DB=dialysisguard
+JWT_SECRET=change-this-before-production
+JWT_ALGORITHM=HS256
+JWT_EXPIRATION_HOURS=24
+SIMULATION_INTERVAL_MIN_SECONDS=5
+SIMULATION_INTERVAL_MAX_SECONDS=7
+SIMULATION_TIME_STEPS=30
+
+# Super Admin account (created on first startup)
+SUPER_ADMIN_EMAIL=admin@dialysisguard.com
+SUPER_ADMIN_PASSWORD=SuperAdminPassword123!
+SUPER_ADMIN_NAME=System Administrator
+```
+
+#### Step 2: Start the Backend
+
+```bash
+cd backend
+source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+uvicorn main:app --reload --port 8000
+```
+
+**What happens automatically:**
+- The `seed_super_admin()` function runs at startup (triggered in `main.py` lifespan)
+- It checks if `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_PASSWORD` are set in environment variables
+- If they are, it creates a new Super Admin user or updates the existing one
+- The user is created with `role="super_admin"`, `org_id=null`, `status="active"`, and `must_change_password=False`
+- Returns status: `"created"`, `"verified"`, or `"skipped"` (check server logs)
+
+#### Step 3: Login as Super Admin
+
+In the frontend or via API, login with:
+
+**Email**: `admin@dialysisguard.com`  
+**Password**: `SuperAdminPassword123!`
+
+**API Call:**
+```bash
+curl -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@dialysisguard.com",
+    "password": "SuperAdminPassword123!"
+  }'
+```
+
+**Response:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer",
+  "user": {
+    "id": "507f1f77bcf86cd799439011",
+    "name": "System Administrator",
+    "email": "admin@dialysisguard.com",
+    "role": "super_admin",
+    "org_id": null,
+    "org_name": null,
+    "status": "active",
+    "must_change_password": false,
+    "created_at": "2026-04-29T12:00:00.000000"
+  }
+}
+```
+
+Use the `access_token` in the `Authorization: Bearer <token>` header for all subsequent API calls.
+
+---
+
+### Creating an Organization
+
+**Role Required**: SUPER_ADMIN  
+**Endpoint**: `POST /api/admin/organizations`
+
+**Request:**
+```bash
+curl -X POST http://localhost:8000/api/admin/organizations \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <super_admin_token>" \
+  -d '{
+    "name": "City Medical Center",
+    "code": "CMC",
+    "address": "123 Healthcare Ave, Medical City, MC 12345",
+    "phone": "+1-555-123-4567",
+    "email": "admin@citymedicl.com"
+  }'
+```
+
+**Response:**
+```json
+{
+  "id": "507f1f77bcf86cd799439012",
+  "name": "City Medical Center",
+  "code": "CMC",
+  "status": "active",
+  "address": "123 Healthcare Ave, Medical City, MC 12345",
+  "phone": "+1-555-123-4567",
+  "email": "admin@citymedicl.com",
+  "staff_count": 0,
+  "patient_count": 0,
+  "created_by": "507f1f77bcf86cd799439011",
+  "created_at": "2026-04-29T12:00:00.000000",
+  "updated_at": "2026-04-29T12:00:00.000000"
+}
+```
+
+Save the organization `id` — you'll need it to create org admins.
+
+---
+
+### Creating an Organization Admin
+
+**Role Required**: SUPER_ADMIN  
+**Endpoint**: `POST /api/admin/organizations/{org_id}/org-admins`
+
+**Request:**
+```bash
+curl -X POST http://localhost:8000/api/admin/organizations/507f1f77bcf86cd799439012/org-admins \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <super_admin_token>" \
+  -d '{
+    "name": "Dr. Hospital Manager",
+    "email": "hospital.manager@citymedicl.com",
+    "role": "org_admin"
+  }'
+```
+
+**Response:**
+```json
+{
+  "user": {
+    "id": "507f1f77bcf86cd799439013",
+    "name": "Dr. Hospital Manager",
+    "email": "hospital.manager@citymedicl.com",
+    "role": "org_admin",
+    "org_id": "507f1f77bcf86cd799439012",
+    "org_name": "City Medical Center",
+    "status": "active",
+    "must_change_password": true,
+    "created_at": "2026-04-29T12:00:00.000000"
+  },
+  "temporary_password": "aBc123dEfG45hI"
+}
+```
+
+**Important**: The `temporary_password` is shown only once. Provide it to the new org admin securely. On first login, they will be forced to change it.
+
+---
+
+### Org Admin: Creating Staff (Doctors/Nurses)
+
+**Role Required**: ORG_ADMIN (for their organization)  
+**Endpoint**: `POST /api/org/staff`
+
+The org admin logs in with their email and new password (after changing the temporary one).
+
+**Request:**
+```bash
+curl -X POST http://localhost:8000/api/org/staff \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <org_admin_token>" \
+  -d '{
+    "name": "Dr. Sarah Johnson",
+    "email": "sarah.johnson@citymedicl.com",
+    "role": "doctor"
+  }'
+```
+
+**Response:**
+```json
+{
+  "user": {
+    "id": "507f1f77bcf86cd799439014",
+    "name": "Dr. Sarah Johnson",
+    "email": "sarah.johnson@citymedicl.com",
+    "role": "doctor",
+    "org_id": "507f1f77bcf86cd799439012",
+    "org_name": "City Medical Center",
+    "status": "active",
+    "must_change_password": true,
+    "created_at": "2026-04-29T12:00:00.000000"
+  },
+  "temporary_password": "xYz789qWe23rT"
+}
+```
+
+**To create a Nurse:**
+```bash
+curl -X POST http://localhost:8000/api/org/staff \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <org_admin_token>" \
+  -d '{
+    "name": "Nurse John Smith",
+    "email": "john.smith@citymedicl.com",
+    "role": "nurse"
+  }'
+```
+
+---
+
+### Login as Different Roles
+
+#### Login as Organization Admin
+
+```bash
+curl -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "hospital.manager@citymedicl.com",
+    "password": "<new_password_after_change>"
+  }'
+```
+
+**First Time**: User will be forced to change password.
+```bash
+curl -X POST http://localhost:8000/api/auth/change-password \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <temp_token>" \
+  -d '{
+    "current_password": "aBc123dEfG45hI",
+    "new_password": "MyNewPassword456!"
+  }'
+```
+
+Then login again with the new password.
+
+#### Login as Doctor
+
+```bash
+curl -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "sarah.johnson@citymedicl.com",
+    "password": "<new_password_after_change>"
+  }'
+```
+
+#### Login as Nurse
+
+```bash
+curl -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "john.smith@citymedicl.com",
+    "password": "<new_password_after_change>"
+  }'
+```
+
+---
+
+---
+
+## Frontend Routes by Role
+
+After logging in, users are automatically redirected to their role-specific dashboard. Here are all the available routes:
+
+### Login & Authentication Routes
+
+| Route | Purpose | Access |
+|---|---|---|
+| `http://localhost:3000/login` | **Login page** - Enter email and password | Public |
+| `http://localhost:3000/register` | **Register page** | Disabled (admin-only provisioning) |
+| `http://localhost:3000/change-password` | **Change password** - Forced on first login | Authenticated users |
+
+### Super Admin Routes
+
+| Route | Purpose | Requires |
+|---|---|---|
+| `http://localhost:3000/admin/organizations` | **List all organizations** - Create, view, suspend/activate orgs | SUPER_ADMIN |
+| `http://localhost:3000/admin/organizations/[id]` | **View organization details** - Edit org info, manage org admins | SUPER_ADMIN |
+| `http://localhost:3000/admin/staff` | **Manage all staff across organizations** | SUPER_ADMIN |
+
+### Organization Admin Routes
+
+| Route | Purpose | Requires |
+|---|---|---|
+| `http://localhost:3000/admin/staff` | **List and manage doctors/nurses** - Create, update, disable/activate staff | ORG_ADMIN |
+
+### Clinical Staff Routes (Doctors & Nurses)
+
+| Route | Purpose | Requires |
+|---|---|---|
+| `http://localhost:3000/dashboard/doctor` | **Doctor dashboard** - Overview, statistics, quick access | DOCTOR |
+| `http://localhost:3000/dashboard/nurse` | **Nurse dashboard** - Simplified view of patients and alerts | NURSE |
+| `http://localhost:3000/patients` | **Patient management** - List, create, view, edit patients | DOCTOR or NURSE |
+| `http://localhost:3000/patients/[id]` | **Patient details** - Full patient profile and history | DOCTOR or NURSE |
+| `http://localhost:3000/patients/[id]/history` | **Patient session history** - Past dialysis sessions | DOCTOR or NURSE |
+| `http://localhost:3000/monitor` | **Real-time monitoring** - Active session monitoring with XAI | DOCTOR or NURSE |
+| `http://localhost:3000/alerts` | **Alerts dashboard** - View, filter, acknowledge alerts | DOCTOR or NURSE |
+| `http://localhost:3000/model-info` | **Model transparency** - Model card, fairness, limitations | DOCTOR or NURSE |
+
+---
+
+## Frontend UI for Admin Roles
+
+Yes! DialysisGuard includes **fully functional web UIs for Super Admin and Organization Admin**. No need to use API calls — everything is available through an intuitive dashboard.
+
+### Super Admin UI
+
+**Access**: `http://localhost:3000/admin/organizations`
+
+**What you can do:**
+- View all organizations in the system
+- Create new organizations (hospital/clinic)
+- Edit organization details (name, code, address, phone, email)
+- Suspend or activate organizations
+- View organization statistics (staff count, patient count)
+- Click organization to view its details
+- View all staff across organizations
+- Create organization admins
+- Disable/activate/reset password for any user in the system
+
+**Key Features:**
+- Search organizations by name or code
+- Real-time organization list
+- Inline organization creation form
+- Organization detail page with editing
+- Staff management across organizations
+- Temporary password generation and display
+
+### Organization Admin UI
+
+**Access**: `http://localhost:3000/admin/staff`
+
+**What you can do:**
+- View your organization's summary (staff count, patient count, etc.)
+- List all doctors and nurses in your organization
+- Create new doctors
+- Create new nurses
+- Edit staff member details (name, email, role)
+- Disable/activate staff members
+- Reset staff passwords
+- View organization info
+
+**Key Features:**
+- Organization stats dashboard
+- Search staff by name or email
+- Inline staff creation form
+- Staff detail editing
+- Temporary password generation
+- Copy-to-clipboard password functionality
+- Real-time staff list updates
+
+---
+
+### Step-by-Step: How to Login and Use the Admin UI
+
+#### Super Admin Login (Simplest Path)
+
+1. **Start the backend** (if not already running):
+   ```bash
+   cd backend
+   .venv\Scripts\activate  # Windows
+   # or: source .venv/bin/activate  # Mac/Linux
+   uvicorn main:app --reload --port 8000
+   ```
+
+2. **Start the frontend**:
+   ```bash
+   cd frontend
+   npm run dev
+   ```
+   Frontend runs on `http://localhost:3000`
+
+3. **Open browser**: Go to `http://localhost:3000/login`
+
+4. **Login with Super Admin credentials**:
+   - Email: `admin@dialysisguard.com` (or whatever you set in `.env`)
+   - Password: `SuperAdminPassword123!` (or whatever you set in `.env`)
+
+5. **Click "Login"**
+
+6. **You're automatically redirected to**: `http://localhost:3000/admin/organizations`
+
+7. **You can now:**
+   - See all organizations in a list
+   - Click "+ Create Organization" button
+   - Fill in: name, code, address, phone, email
+   - Click "Create"
+   - Organization created! You'll be redirected to its detail page
+   - Click "View Staff" to see org admins and staff
+   - Click "Create Org Admin" to create a new organization admin (will show temporary password)
+
+---
+
+#### Organization Admin Login (After Super Admin Creates You)
+
+1. **Super Admin created your account** and provided you with:
+   - Email: `hospital.manager@citymedicl.com`
+   - Temporary Password: (shown once after creation, e.g., `aBc123dEfG45hI`)
+
+2. **Go to**: `http://localhost:3000/login`
+
+3. **Login with temporary password**:
+   - Email: `hospital.manager@citymedicl.com`
+   - Password: `aBc123dEfG45hI` (the temporary one)
+
+4. **You see "Password Change Required" page** at `/change-password`
+   - Enter current password: `aBc123dEfG45hI`
+   - Enter new password: `MyNewPassword456!`
+   - Enter new password again to confirm
+   - Click "Change Password"
+
+5. **Login again** with your new password:
+   - Email: `hospital.manager@citymedicl.com`
+   - Password: `MyNewPassword456!`
+
+6. **You're automatically redirected to**: `http://localhost:3000/admin/staff`
+
+7. **You can now:**
+   - See your organization info at top
+   - See staff statistics (doctors, nurses count)
+   - See list of all doctors and nurses
+   - Click "+ Create Staff" button
+   - Fill in: name, email, role (Doctor or Nurse)
+   - Click "Create Staff"
+   - Staff created! Temporary password shown on screen
+   - Provide the temporary password to the new doctor/nurse
+   - They login and must change password on first login (same as org admin flow)
+
+---
+
+### Admin UI Screenshots (What You'll See)
+
+#### Organizations List (Super Admin)
+```
+┌─────────────────────────────────────┐
+│ DialysisGuard - Platform Admin      │
+├─────────────────────────────────────┤
+│                                     │
+│ [Search] [+ Create Organization]    │
+│                                     │
+│ Organizations:                      │
+│ ┌─────────────────────────────────┐ │
+│ │ City Medical Center              │ │
+│ │ Code: CMC                        │ │
+│ │ Staff: 5 | Patients: 24          │ │
+│ │ Status: Active                   │ │
+│ │ [View] [Suspend]                 │ │
+│ └─────────────────────────────────┘ │
+│                                     │
+│ ┌─────────────────────────────────┐ │
+│ │ County Hospital                  │ │
+│ │ Code: CH                         │ │
+│ │ Staff: 8 | Patients: 42          │ │
+│ │ Status: Active                   │ │
+│ │ [View] [Suspend]                 │ │
+│ └─────────────────────────────────┘ │
+└─────────────────────────────────────┘
+```
+
+#### Staff List (Org Admin)
+```
+┌──────────────────────────────────────┐
+│ DialysisGuard - Organization Admin   │
+├──────────────────────────────────────┤
+│ Organization: City Medical Center    │
+│ Stats: 5 Staff | 24 Patients         │
+├──────────────────────────────────────┤
+│                                      │
+│ [Search] [+ Create Staff]            │
+│                                      │
+│ Staff List:                          │
+│ ┌────────────────────────────────┐   │
+│ │ Dr. Sarah Johnson              │   │
+│ │ Email: sarah@citymedicl.com    │   │
+│ │ Role: Doctor | Status: Active  │   │
+│ │ [Edit] [Disable] [Reset Pwd]   │   │
+│ └────────────────────────────────┘   │
+│                                      │
+│ ┌────────────────────────────────┐   │
+│ │ Nurse John Smith               │   │
+│ │ Email: john@citymedicl.com     │   │
+│ │ Role: Nurse | Status: Active   │   │
+│ │ [Edit] [Disable] [Reset Pwd]   │   │
+│ └────────────────────────────────┘   │
+└──────────────────────────────────────┘
+```
+
+---
+
+---
+
+### Step-by-Step Frontend Workflows
+
+#### Super Admin Flow
+
+1. Go to `http://localhost:3000/login`
+2. Enter Super Admin credentials:
+   - Email: `admin@dialysisguard.com`
+   - Password: `SuperAdminPassword123!`
+3. Click **Login**
+4. Auto-redirected to `http://localhost:3000/admin/organizations`
+5. From here you can:
+   - **Create Organization** - Click "Create Organization" button
+   - **View Organization** - Click on any organization in the list
+   - **Manage Org Admins** - Click organization → "Staff" tab
+   - **Navigate to Staff** - Click "Staff" in sidebar
+   - **Manage Users** - List all users, disable/activate, reset passwords
+
+#### Organization Admin Flow
+
+1. Go to `http://localhost:3000/login`
+2. Enter Org Admin credentials (provided by Super Admin):
+   - Email: `hospital.manager@citymedicl.com`
+   - Password: `<temporary_password_from_super_admin>`
+3. Click **Login**
+4. You'll be redirected to `http://localhost:3000/change-password`
+5. **REQUIRED**: Change your password (temporary password enforced)
+   - Enter old password (the temporary one)
+   - Enter new password
+   - Click **Change Password**
+6. Login again with new password
+7. Auto-redirected to `http://localhost:3000/admin/staff`
+8. From here you can:
+   - **Create Doctor** - Click "Create Staff" → Select "Doctor" role
+   - **Create Nurse** - Click "Create Staff" → Select "Nurse" role
+   - **View Staff** - List all doctors and nurses in your organization
+   - **Edit Staff** - Click staff member to edit details
+   - **Disable Staff** - Click staff member → Disable button
+   - **Activate Staff** - Click disabled staff → Activate button
+   - **Reset Password** - Click staff member → Reset Password button
+
+#### Doctor Flow
+
+1. Go to `http://localhost:3000/login`
+2. Enter Doctor credentials:
+   - Email: `sarah.johnson@citymedicl.com`
+   - Password: `<new_password_after_change>`
+3. Click **Login**
+4. Auto-redirected to `http://localhost:3000/dashboard/doctor`
+5. Doctor Dashboard shows:
+   - **Organization Info** - Your hospital/clinic name
+   - **Statistics** - Total patients, active sessions
+   - **Recent Alerts** - Latest critical/high alerts
+   - **Recent Patients** - Quick access to recently viewed patients
+6. From here you can navigate to:
+   - **Patients** (`/patients`) - Manage patient registry
+   - **Monitoring** (`/monitor`) - View active sessions with real-time XAI
+   - **Alerts** (`/alerts`) - View all alerts across your patients
+   - **Model Info** (`/model-info`) - Understand the AI model
+
+#### Nurse Flow
+
+1. Go to `http://localhost:3000/login`
+2. Enter Nurse credentials:
+   - Email: `john.smith@citymedicl.com`
+   - Password: `<new_password_after_change>`
+3. Click **Login**
+4. Auto-redirected to `http://localhost:3000/dashboard/nurse`
+5. Nurse Dashboard shows:
+   - **Organization Info** - Your hospital/clinic name
+   - **Vital Signs** - Large, easy-to-read displays
+   - **Alerts** - Prominent alert notifications
+   - **Quick Actions** - Fast access to monitoring
+6. Can access:
+   - **Patients** (`/patients`) - View patients (read-only or limited edit)
+   - **Monitoring** (`/monitor`) - View active sessions
+   - **Alerts** (`/alerts`) - View alerts relevant to assigned patients
+
+---
+
+### Navigation Sidebar (Role-Aware)
+
+The sidebar automatically shows menu items based on your role:
+
+**Super Admin sees:**
+- Organizations
+- Staff
+
+**Org Admin sees:**
+- Staff
+- Organization Summary
+
+**Doctor/Nurse sees:**
+- Patients
+- Monitoring
+- Alerts
+- Model Info
+- Change Password
+- Logout
+
+---
+
+### How Role-Based Routing Works
+
+When you login, the system:
+
+1. Validates email/password
+2. Checks user's role from database
+3. Normalizes role (e.g., "caregiver" → "nurse")
+4. Checks if password change required
+5. **Auto-redirects** to appropriate dashboard:
+   - `super_admin` → `/admin/organizations`
+   - `org_admin` → `/admin/staff`
+   - `doctor` → `/dashboard/doctor`
+   - `nurse` → `/dashboard/nurse`
+
+If password change is required:
+- User is redirected to `/change-password` instead
+- Must change password to proceed
+- After change, must login again
+- Then auto-redirected to role dashboard
+
+---
+
+## User Management API Reference
+
+### Super Admin Endpoints
+
+| Endpoint | Method | Description | Requires |
+|---|---|---|---|
+| `/api/admin/organizations` | GET | List all organizations | SUPER_ADMIN |
+| `/api/admin/organizations` | POST | Create organization | SUPER_ADMIN |
+| `/api/admin/organizations/{org_id}` | GET | Get organization details | SUPER_ADMIN |
+| `/api/admin/organizations/{org_id}` | PUT | Update organization | SUPER_ADMIN |
+| `/api/admin/organizations/{org_id}/suspend` | POST | Suspend organization | SUPER_ADMIN |
+| `/api/admin/organizations/{org_id}/activate` | POST | Activate organization | SUPER_ADMIN |
+| `/api/admin/organizations/{org_id}/users` | GET | List all users in org | SUPER_ADMIN |
+| `/api/admin/organizations/{org_id}/org-admins` | POST | Create org admin | SUPER_ADMIN |
+| `/api/admin/users/{user_id}/disable` | POST | Disable any user | SUPER_ADMIN |
+| `/api/admin/users/{user_id}/activate` | POST | Activate any user | SUPER_ADMIN |
+| `/api/admin/users/{user_id}/reset-password` | POST | Reset user password | SUPER_ADMIN |
+
+### Organization Admin Endpoints
+
+| Endpoint | Method | Description | Requires |
+|---|---|---|---|
+| `/api/org/summary` | GET | Get org stats | ORG_ADMIN |
+| `/api/org/staff` | GET | List doctors/nurses | ORG_ADMIN |
+| `/api/org/staff` | POST | Create doctor/nurse | ORG_ADMIN |
+| `/api/org/staff/{staff_id}` | PUT | Update staff details | ORG_ADMIN |
+| `/api/org/staff/{staff_id}/disable` | POST | Disable staff | ORG_ADMIN |
+| `/api/org/staff/{staff_id}/activate` | POST | Activate staff | ORG_ADMIN |
+
+### Auth Endpoints (All Roles)
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/auth/login` | POST | Login and get JWT token |
+| `/api/auth/change-password` | POST | Change your password |
+| `/api/auth/me` | GET | Get current user profile |
+
+---
+
+## Preflight Checks
+
+The system includes automatic startup validation:
+
+```bash
+python backend/scripts/preflight.py
+```
+
+Checks performed:
+- ✅ Python version (3.11+)
+- ✅ TensorFlow/Keras runtime compatibility
+- ✅ ML model files present and valid
+- ✅ Scaler and encoder files present
+- ✅ MongoDB connectivity
+- ✅ Required collections exist
+
+---
+
+## Environment Variables Reference
+
+### Backend Configuration (.env)
+
+```bash
+# App Runtime
+DEBUG=true                                      # Enable debug logging
+MONGODB_URI=mongodb://localhost:27017          # MongoDB connection string
+MONGODB_DB=dialysisguard                       # Database name
+JWT_SECRET=change-this-before-production       # JWT signing secret (must be 32+ chars in production)
+JWT_ALGORITHM=HS256                            # JWT algorithm
+JWT_EXPIRATION_HOURS=24                        # Token expiration (hours)
+
+# Super Admin Account (auto-created on startup if set)
+SUPER_ADMIN_EMAIL=admin@dialysisguard.com      # Email for root admin
+SUPER_ADMIN_PASSWORD=SuperAdminPassword123!    # Password for root admin
+SUPER_ADMIN_NAME=System Administrator          # Name for root admin
+
+# Realtime Simulation
+SIMULATION_INTERVAL_MIN_SECONDS=5              # Minimum seconds between vital updates
+SIMULATION_INTERVAL_MAX_SECONDS=7              # Maximum seconds between vital updates
+SIMULATION_TIME_STEPS=30                       # Total steps per session (240 minutes)
+
+# ML Model Paths (auto-configured, no need to change)
+MODEL_DIR=backend/ml
+MODEL_PATH=backend/ml/gru_model.h5
+SCALER_PATH=backend/ml/scaler.pkl
+ENCODERS_PATH=backend/ml/label_encoders.pkl
+
+# XAI Configuration
+SHAP_BACKGROUND_SAMPLES=100                    # Samples for SHAP background
+MC_DROPOUT_PASSES=20                           # Passes for uncertainty (full analysis)
+REALTIME_MC_DROPOUT_PASSES=6                   # Passes for uncertainty (realtime)
+```
 
 ---
 
@@ -78,21 +816,26 @@ npm run dev
 ├── final.ipynb                          # Reference notebook
 ├── Hemodialysis_Data 2.csv              # Original dataset (reference)
 ├── synthetic_hemodialysis_timeseries.csv # Training dataset
+├── Readme.md                            # This file
 ├── backend/
 │   ├── main.py                          # FastAPI app entry point
-│   ├── config.py                        # Configuration
-│   ├── requirements.txt                 # Python dependencies
+│   ├── config.py                        # Configuration & settings
 │   ├── database.py                      # MongoDB connection
+│   ├── requirements.txt                 # Python dependencies
+│   ├── .env.example                     # Environment template
 │   ├── models/
-│   │   ├── schemas.py                   # Pydantic models
-│   │   └── db_models.py                 # MongoDB document schemas
+│   │   ├── schemas.py                   # Pydantic request/response models
+│   │   └── __init__.py
 │   ├── routes/
-│   │   ├── auth.py                      # Login/register
+│   │   ├── auth.py                      # Authentication (login, register, token)
+│   │   ├── admin.py                     # Super admin routes (orgs, org-admins, user management)
+│   │   ├── org_admin.py                 # Organization admin routes (staff management)
 │   │   ├── patients.py                  # Patient CRUD
 │   │   ├── sessions.py                  # Session management
 │   │   ├── predictions.py               # Model predictions
 │   │   ├── alerts.py                    # Alert endpoints
-│   │   └── explanations.py              # XAI endpoints
+│   │   ├── explanations.py              # XAI endpoints
+│   │   └── __init__.py
 │   ├── services/
 │   │   ├── ml_service.py                # GRU model inference + MC Dropout
 │   │   ├── xai_service.py               # Explainable AI service
@@ -108,48 +851,119 @@ npm run dev
 │   │   ├── label_encoders.pkl           # Label encoders
 │   │   ├── feature_config.json          # Feature names/ranges
 │   │   └── model_card.json              # Model transparency card
-│   └── websocket/
-│       └── realtime.py                  # WebSocket for real-time streaming
+│   ├── websocket/
+│   │   └── realtime.py                  # WebSocket for real-time streaming
+│   └── scripts/
+│       └── preflight.py                 # Startup validation
 └── frontend/
     ├── package.json
     ├── next.config.mjs
-    ├── src/
-    │   ├── app/
-    │   │   ├── layout.js / globals.css  # Dark theme
-    │   │   ├── login/ & register/       # Auth pages
-    │   │   ├── dashboard/
-    │   │   │   ├── doctor/page.js       # Doctor dashboard
-    │   │   │   ├── caregiver/page.js    # Caregiver dashboard
-    │   │   │   └── command/page.js      # Backward-compatible redirect to /patients
-    │   │   ├── patients/page.js         # Patient management (consolidated)
-    │   │   ├── monitor/page.js          # Real-time monitoring & XAI dashboard (consolidated)
-    │   │   ├── alerts/page.js           # Alerts dashboard
-    │   │   └── model-info/page.js       # Model transparency
-    │   └── components/
-    │       ├── ErrorBoundary.js         # Error handling wrapper
-    │       ├── PageShell.js             # Shared page container
-    │       ├── Sidebar.js               # Navigation menu
-    │       └── ui/
-    │           └── HypnoRing.js         # Custom loading animation
+    └── src/
+        ├── app/
+        │   ├── layout.js / globals.css  # Dark theme
+        │   ├── login/ & register/       # Auth pages (role-aware)
+        │   ├── dashboard/
+        │   │   ├── doctor/page.js       # Doctor dashboard
+        │   │   ├── org-admin/page.js    # Org admin dashboard
+        │   ├── patients/page.js         # Patient management
+        │   ├── monitor/page.js          # Real-time monitoring & XAI
+        │   ├── alerts/page.js           # Alerts dashboard
+        │   └── model-info/page.js       # Model transparency
+        └── components/
+            ├── ErrorBoundary.js         # Error handling wrapper
+            ├── PageShell.js             # Shared page container
+            ├── Sidebar.js               # Navigation menu (role-aware)
+            └── ui/
+                └── HypnoRing.js         # Custom loading animation
 ```
 
 ---
 
-### Component 2: ML Model Training
+### Component 2: Database Schema
+
+#### Users Collection
+
+```javascript
+{
+  "_id": ObjectId("507f1f77bcf86cd799439011"),
+  "name": "Dr. Sarah Johnson",
+  "email": "sarah@hospital.com",
+  "password_hash": "$2b$12$...",                    // bcrypt hash
+  "role": "doctor",                                 // super_admin | org_admin | doctor | nurse
+  "org_id": "507f1f77bcf86cd799439012",            // null for super_admin
+  "status": "active",                               // active | disabled
+  "must_change_password": false,                    // Force change on first login
+  "created_by": "507f1f77bcf86cd799439011",
+  "created_at": "2026-04-29T12:00:00.000000",
+  "updated_at": "2026-04-29T12:00:00.000000",
+  "last_login_at": "2026-04-29T13:30:00.000000"
+}
+```
+
+#### Organizations Collection
+
+```javascript
+{
+  "_id": ObjectId("507f1f77bcf86cd799439012"),
+  "name": "City Medical Center",
+  "code": "CMC",                                      // Unique, auto-normalized to uppercase
+  "status": "active",                                // active | suspended
+  "address": "123 Healthcare Ave, Medical City",
+  "phone": "+1-555-123-4567",
+  "email": "admin@citymedicl.com",
+  "created_by": "507f1f77bcf86cd799439011",
+  "created_at": "2026-04-29T12:00:00.000000",
+  "updated_at": "2026-04-29T12:00:00.000000"
+}
+```
+
+#### Patients Collection
+
+```javascript
+{
+  "_id": ObjectId("507f1f77bcf86cd799439100"),
+  "org_id": "507f1f77bcf86cd799439012",              // Organization this patient belongs to
+  "name": "John Doe",
+  "age": 65,
+  "gender": "M",
+  "weight": 75.5,
+  // ... clinical fields
+  "created_by": "507f1f77bcf86cd799439014",
+  "created_at": "2026-04-29T12:00:00.000000"
+}
+```
+
+#### Sessions Collection
+
+```javascript
+{
+  "_id": ObjectId("507f1f77bcf86cd799439200"),
+  "patient_id": "507f1f77bcf86cd799439100",
+  "org_id": "507f1f77bcf86cd799439012",              // Organization scoping
+  "started_by": "507f1f77bcf86cd799439014",
+  "start_time": "2026-04-29T14:00:00.000000",
+  "end_time": "2026-04-29T14:30:00.000000",
+  "status": "completed",                             // active | paused | completed | stopped
+  "time_series_data": [ /* vital readings */ ],
+  "predictions": [ /* risk predictions */ ],
+  "explanations": [ /* XAI data */ ]
+}
+```
+
+---
+
+### Component 3: ML Model Training
 
 **Training Data**: `synthetic_hemodialysis_timeseries.csv` — 5000 patients, 30 time steps each at 8-min intervals
 
 **Feature Processing**:
-- **Static features** (constant per patient): Age, Gender, Weight, Diabetes, Hypertension, Kidney Failure Cause, Creatinine, Urea, Potassium, Hemoglobin, Hematocrit, Albumin, Dialysis Duration, Dialysis Frequency, Dialysate Composition, Vascular Access Type, Dialyzer Type, Urine Output, Dry Weight, Fluid Removal Rate, Disease Severity
-- **Temporal features** (varying per time step): Current_BP, Current_HR, Time_Minutes
+- **Static features**: Age, Gender, Weight, Diabetes, Hypertension, Kidney Failure Cause, Creatinine, Urea, Potassium, Hemoglobin, Hematocrit, Albumin, Dialysis Duration, Dialysis Frequency, Dialysate Composition, Vascular Access Type, Dialyzer Type, Urine Output, Dry Weight, Fluid Removal Rate, Disease Severity
+- **Temporal features**: Current_BP, Current_HR, Time_Minutes
 - **Engineered features**: BP rate-of-change, HR rate-of-change, BP deviation from baseline, cumulative BP volatility
 - **Target**: `Is_Unstable` (binary, per time step)
-- Categoricals encoded with LabelEncoder, numericals scaled with StandardScaler.
-- Reshaped into sequences: each patient = 1 sequence of 30 time steps × N features
-- Train/val/test split by Patient_ID (70/15/15) to prevent data leakage
 
-**Model**: Attention-Augmented GRU (`backend/ml/attention_gru.py`)
-```text
+**Model**: Attention-Augmented GRU
+```
 Input (30 × N_features) →
 GRU(128, return_sequences=True) → BatchNorm →
 GRU(64, return_sequences=True) → BatchNorm →
@@ -160,30 +974,13 @@ Dense(32, relu) → Dropout(0.2) →
 Dense(1, sigmoid)
 ```
 
-**Outputs saved locally**:
-- `gru_model.h5` — trained model
-- `scaler.pkl` — fitted StandardScaler
-- `label_encoders.pkl` — fitted LabelEncoders
-- `feature_config.json` — feature names, types, and clinical ranges
-- `model_card.json` — performance metrics, subgroup analysis
-
-**Inference (`backend/services/ml_service.py`)**:
-- Loads saved model/scaler/encoders at FastAPI startup
-- `predict(sequence)` → risk probability
-- `predict_with_uncertainty(sequence, n=20)` → MC Dropout confidence interval
-- `get_attention_weights(sequence)` → temporal attention from the attention layer
-
 ---
 
-### Component 3: Physiological Simulation Engine
+### Component 4: Physiological Simulation Engine
 
 **Implementation**: `backend/services/simulation_service.py`
 
-Since the training CSV is static, the simulation generates **fresh, never-seen data** for active monitoring:
-
-**How it works**:
-1. **Patient baseline** → from the patient's stored demographics/clinical data
-2. **Vital trajectory generation** using clinical models:
+Generates unique, clinically realistic vital sign trajectories:
 
 ```python
 class PhysiologicalSimulator:
@@ -196,7 +993,7 @@ class PhysiologicalSimulator:
         Blood Pressure Model:
         - Starts at patient's pre-dialysis BP
         - Natural drift downward during dialysis (fluid removal effect)
-        - Random Gaussian noise (±5-10 mmHg per step)
+        - Random noise (±5-10 mmHg per step)
         - If risk_profile="high": steeper drop + potential crash events
         - Bounded by physiological limits (60-200 mmHg)
         
@@ -206,88 +1003,55 @@ class PhysiologicalSimulator:
         - Random noise (±3-5 bpm)
         - Tachycardia events in high-risk profiles
         - Bounded (40-150 bpm)
-        
-        Other vitals follow similar clinical patterns.
         """
 ```
 
-3. **Risk profiles**: Random selection with weights — `low`(40%), `moderate`(35%), `high`(20%), `critical`(5%)
-4. **Deterioration events**: Randomly injected BP crashes, tachycardia spikes, or gradual decline patterns
-5. Each generated time step is immediately fed to the GRU model → real-time prediction
-
-**Why this is better than replaying CSV data**:
-- Every simulation is unique — unpredictable for the user
-- Tests the model on genuinely unseen patterns
-- Clinically realistic — based on actual dialysis physiology
-- Controllable — can seed specific risk scenarios for training/demo
+Risk profiles (random selection with weights):
+- `low` (40%) — stable vitals
+- `moderate` (35%) — minor fluctuations
+- `high` (20%) — significant instability
+- `critical` (5%) — severe deterioration
 
 ---
 
-### Component 4: FastAPI Backend
+### Component 5: Explainable AI (XAI) — 7 Pillars
 
-**Implementation**: `backend/main.py`
-- FastAPI app with CORS, JWT auth middleware
-- Auto-generated OpenAPI docs at `/docs`
-- Lifespan handler to load ML model at startup
-- WebSocket endpoint for real-time streaming
-- All routes registered as APIRouters
+```
+Prediction: 78% Risk
+     ↓
+┌────┬────┬────┬────┬────┬────┐
+│ 1  │ 2  │ 3  │ 4  │ 5  │ 6  │
+└────┴────┴────┴────┴────┴────┘
 
-#### API Endpoints
+1️⃣ SHAP — Feature Attribution
+   Feature contributions showing which inputs drove the prediction
 
-**Auth** (`/api/auth/`)
-| Endpoint | Method | Description |
-|---|---|---|
-| `register` | POST | Register user (doctor/caregiver) |
-| `login` | POST | Login → JWT token |
-| `me` | GET | Current user profile |
+2️⃣ Attention Weights — Temporal Focus
+   Which time steps mattered most in the GRU sequence
 
-**Patients** (`/api/patients/`)
-| Endpoint | Method | Description |
-|---|---|---|
-| `/` | GET | List patients (search, filter, sort) |
-| `/` | POST | Create patient |
-| `/{id}` | GET/PUT/DELETE | Patient CRUD |
+3️⃣ Counterfactual — What-If Analysis
+   Minimal changes needed to reach target risk level
 
-**Sessions** (`/api/sessions/`)
-| Endpoint | Method | Description |
-|---|---|---|
-| `/` | POST | Start session (triggers simulation) |
-| `/{id}` | GET | Session details + time-series |
-| `/{id}/stop` | POST | Stop session |
-| `/{id}/report` | GET | Auto-generated session report |
-| `/patient/{patient_id}` | GET | Patient's session history |
+4️⃣ MC Dropout — Uncertainty Quantification
+   Confidence intervals (mean ± σ) from 20 forward passes
 
-**Predictions** (`/api/predict/`)
-| Endpoint | Method | Description |
-|---|---|---|
-| `/` | POST | Single prediction |
-| `/risk-assessment` | POST | Full assessment with recommendations |
+5️⃣ Natural Language — Human-Readable
+   Template-based explanations adapting to risk level
 
-**Alerts** (`/api/alerts/`)
-| Endpoint | Method | Description |
-|---|---|---|
-| `/` | GET | List alerts (filters: severity, acknowledged, date) |
-| `/{id}/acknowledge` | POST | Acknowledge alert |
-| `/stats` | GET | Alert statistics |
+6️⃣ Temporal Heatmap — Evolution Over Time
+   2D matrix [time × features] showing how contributions evolved
 
-**Explanations** (`/api/explain/`)
-| Endpoint | Method | Description |
-|---|---|---|
-| `/shap` | POST | SHAP feature attributions |
-| `/attention` | POST | Temporal attention weights |
-| `/what-if` | POST | Re-predict with modified params |
-| `/counterfactual` | POST | Find minimal changes for target risk |
-| `/sensitivity` | POST | Parameter sensitivity analysis |
-| `/model-card` | GET | Model transparency info |
+7️⃣ Model Card — Transparency & Trust
+   Architecture, performance, fairness, limitations, ethics
+```
 
 ---
 
-### Component 5: WebSocket Real-Time Streaming
+### Component 6: WebSocket Real-Time Streaming
 
-**Implementation**: `backend/websocket/realtime.py`
-- FastAPI WebSocket endpoint at `/ws/monitor/{session_id}`
-- On connect: simulation engine begins generating vital data
-- **Every 5-7 seconds** emits a JSON payload:
+**Endpoint**: `WebSocket /ws/monitor/{session_id}`
+
+Every 5-7 seconds, emits:
 
 ```json
 {
@@ -300,11 +1064,10 @@ class PhysiologicalSimulator:
   },
   "xai": {
     "top_features": [
-      {"name": "BP Drop", "contribution": 0.18, "direction": "risk_increasing"},
-      {"name": "Fluid Rate", "contribution": 0.12, "direction": "risk_increasing"}
+      {"name": "BP Drop", "contribution": 0.18, "direction": "risk_increasing"}
     ],
     "attention_weights": [0.02, 0.03, 0.04, 0.05, 0.08, 0.12],
-    "nl_explanation": "Risk is HIGH primarily due to significant blood pressure drop...",
+    "nl_explanation": "Risk is HIGH primarily due to...",
     "risk_trend": "increasing",
     "risk_forecast_5step": [0.72, 0.75, 0.78, 0.81, 0.84]
   },
@@ -315,306 +1078,231 @@ class PhysiologicalSimulator:
 }
 ```
 
-- Simulation stops on disconnect or explicit stop event
-
 ---
 
-### Component 6: Frontend — Next.js Application
+### Component 7: Frontend Dashboard
 
-#### Theme & Design
-- Dark theme: navy/charcoal (`#0a0e17`, `#111827`), cyan accents (`#06b6d4`), red alerts (`#ef4444`)
-- Google Font: Inter
-- Glassmorphism cards, micro-animations, smooth transitions
+**Role-Based Navigation:**
+- **SUPER_ADMIN**: Admin panel (orgs, org-admins)
+- **ORG_ADMIN**: Staff management, organization stats
+- **DOCTOR/NURSE**: Patient management, monitoring, alerts
 
-#### Pages
-
-**Login/Register** — Animated medical-themed gradient backgrounds, JWT auth
-
-**Doctor Dashboard** — Stats overview, active sessions grid with mini risk gauges, recent alerts, patient quick-access, risk distribution chart
-
-**Caregiver Dashboard** — Simplified: large vital displays, prominent alerts, quick actions
-
-**Patient Management** — Searchable list, comprehensive entry form, full patient profile
-
-**Real-Time Monitoring & Explainability Dashboard** (`/monitor`):
-- Live vital sign charts (BP, HR updating in real-time)
-- Risk Gauge with Confidence Band (e.g., "72% ± 6%")
-- **Risk Trend Arrow** — ↑ increasing, → stable, ↓ decreasing
-- **Risk Forecast Mini-Chart** — predicted risk for next 5 time steps
-- SHAP mini-panel (top 5 contributing features, live)
-- **Anomaly Markers** — flashing indicators on vital charts when anomaly detected
-- Natural language explanation panel
-- **Audio alert** — browser notification sound on CRITICAL risk
-- Alert banner with explanation of WHY
-- **Integrated XAI Panels**: Includes SHAP Waterfall charts, What-If Simulator + Counterfactual suggestions, Temporal Attention Heatmap, and MC Dropout Confidence Distribution embedded directly in the monitoring session.
-
-**Session History & Comparison**:
-- Currently consolidated into patient profile/monitoring views.
-- Trend analysis across past sessions for specific patients.
-
-**Command Center Route Compatibility** (`/dashboard/command`):
-- This route is kept only for legacy bookmarks.
-- It now redirects to `/patients`, which is the single operational patient hub.
-
-**Model Info** — Full model card display
-
----
-
-### Component 7: Explainable AI (XAI) — 7 Pillars
-
-```mermaid
-graph TD
-    A["Prediction: 78% Risk"] --> B["🔍 WHY? — SHAP"]
-    A --> C["⏱️ WHEN? — Attention"]
-    A --> D["🔄 WHAT IF? — Counterfactual"]
-    A --> E["📊 HOW SURE? — MC Dropout"]
-    A --> F["💬 EXPLAIN — Natural Language"]
-    A --> G["🗺️ OVER TIME — Temporal Heatmap"]
-    A --> H["📋 TRUST — Model Card"]
-```
-
-**Pillar 1: SHAP** — Per-prediction feature contributions via `shap.DeepExplainer`. Waterfall charts show base → final prediction.
-
-**Pillar 2: Attention GRU** — Custom Bahdanau attention layer in the GRU outputs temporal weights showing which time steps mattered. Visualized as heatmaps.
-
-**Pillar 3: What-If / Counterfactual** — Interactive sliders modify parameters → instant re-prediction. Auto-finds minimal changes to reach target risk. Sensitivity spider chart.
-
-**Pillar 4: MC Dropout** — 20 forward passes with dropout active → mean, std, 95% CI. Wide interval = low confidence → special "Uncertain" flag.
-
-**Pillar 5: Natural Language** — Template-based sentences combining SHAP top features + attention temporal focus + clinical context. Adapts to risk level.
-
-**Pillar 6: Temporal Heatmap** — 2D matrix [time × features] with SHAP values. Shows how feature contributions evolve across the session.
-
-**Pillar 7: Model Card** — Architecture, performance metrics, subgroup fairness, limitations, ethical notes.
-
----
-
-### Component 8: Innovative Features 🚀
-
-#### 1. Predictive Risk Forecasting
-- At each time step, model predicts risk for the NEXT 5 time steps (40 minutes ahead)
-- Uses the simulation engine to project vital trajectories forward
-- Frontend shows a "forecast cone" — expanding uncertainty over future steps
-- **Clinical value**: "At current trends, risk will reach CRITICAL in ~24 minutes"
-
-#### 2. Smart Alert Escalation
-- Alerts that AUTO-ESCALATE if not acknowledged within a time window:
-  - MODERATE → 5 min → re-alert as HIGH
-  - HIGH → 3 min → re-alert as CRITICAL
-  - CRITICAL → 1 min → escalate to ALL connected users
-- Visual escalation: alert card pulses faster, border thickens
-- **Tracks response times** for quality metrics
-
-#### 3. Session Comparison Analytics
-- Compare current session vs. same patient's past sessions
-- Overlay risk curves, vital trajectories, and alert timings
-- Identify patterns: "This patient typically becomes unstable around minute 160"
-- **Clinical value**: Personalized risk thresholds based on patient history
-
-#### 4. Unified Patient Operations
-- `Patients` is the single operational hub for patient registry and monitoring entry.
-- Command route bookmarks remain safe via redirect compatibility.
-- **Clinical value**: simpler navigation and lower operational ambiguity.
-
-#### 5. Auto Session Report
-- At session end, auto-generates a comprehensive report:
-  - Session timeline with vital charts and risk curves
-  - All alerts triggered (with explanations)
-  - Peak risk moments with XAI breakdown
-  - Interventions timeline
-  - Model confidence throughout session
-- Downloadable as JSON (future: PDF)
-
-#### 6. Anomaly Detection Highlighting
-- Separate from GRU prediction — statistical anomaly detection on vital signs
-- Z-score based: flags values > 2σ from patient's session mean
-- Rate-of-change detection: flags sudden jumps (e.g., BP drops > 15 mmHg in one step)
-- **Visual**: flashing orange marker on the vital chart at anomaly points
-- **Clinical value**: Catches sudden changes even before the GRU model risk catches up
-
-#### 7. Audio/Visual Critical Alerts
-- Browser audio notification on CRITICAL risk events
-- Screen flash effect (brief red pulse on page border)
-- Persistent alert banner that cannot be dismissed without acknowledgment
-- **Clinical value**: Ensures critical events are never missed, even if clinician isn't looking at screen
-
-#### 8. Risk Trend Indicators
-- Real-time trend calculation over last 5 predictions:
-  - ↑ INCREASING (risk rising > 5% over last 5 steps)
-  - → STABLE (risk fluctuating within ±5%)
-  - ↓ DECREASING (risk falling > 5%)
-- Displayed as animated arrow next to Risk Gauge
-- Color-coded: red arrow up, green arrow down, gray arrow right
-- **Clinical value**: Quick visual indicator of trajectory direction
-
----
-
-### Component 9: Database — MongoDB Schema
-
-```mermaid
-erDiagram
-    USERS {
-        ObjectId _id
-        string name
-        string email
-        string password_hash
-        string role "doctor | caregiver"
-        datetime created_at
-    }
-    PATIENTS {
-        ObjectId _id
-        int age
-        string gender
-        float weight
-        boolean diabetes
-        boolean hypertension
-        string kidney_failure_cause
-        float creatinine
-        float urea
-        float potassium
-        float hemoglobin
-        float hematocrit
-        float albumin
-        float dialysis_duration
-        int dialysis_frequency
-        string dialysate_composition
-        string vascular_access_type
-        string dialyzer_type
-        float urine_output
-        float dry_weight
-        float fluid_removal_rate
-        string disease_severity
-        ObjectId created_by
-        datetime created_at
-    }
-    SESSIONS {
-        ObjectId _id
-        ObjectId patient_id
-        ObjectId started_by
-        datetime start_time
-        datetime end_time
-        string status "active | completed | stopped"
-        array time_series_data "generated vital trajectories"
-        array predictions "risk at each step"
-        array explanations "XAI data per step"
-        object report "auto-generated session report"
-    }
-    ALERTS {
-        ObjectId _id
-        ObjectId session_id
-        ObjectId patient_id
-        string severity "LOW | MODERATE | HIGH | CRITICAL"
-        float risk_probability
-        float confidence_lower
-        float confidence_upper
-        string message
-        string nl_explanation
-        array top_features
-        array recommendations
-        boolean acknowledged
-        int escalation_level
-        datetime created_at
-        datetime acknowledged_at
-    }
-    USERS ||--o{ PATIENTS : creates
-    PATIENTS ||--o{ SESSIONS : has
-    SESSIONS ||--o{ ALERTS : generates
-```
-
----
-
-## Data Flow
-
-```mermaid
-sequenceDiagram
-    participant U as Frontend
-    participant API as FastAPI
-    participant WS as WebSocket
-    participant SIM as Simulation Engine
-    participant ML as GRU Model
-    participant XAI as XAI Service
-    participant DB as MongoDB
-
-    U->>API: Login → JWT
-    U->>API: Create Patient
-    U->>WS: Start Simulation
-
-    WS->>SIM: Generate vital trajectory (patient baseline + risk profile)
-    WS->>DB: Create Session
-
-    loop Every 5-7 seconds (30 time steps)
-        SIM-->>WS: Generated vital signs for this step
-        WS->>ML: Predict on accumulated window (MC Dropout × 20)
-        ML-->>WS: Risk prob + confidence interval
-        WS->>XAI: SHAP + attention + NL explanation
-        XAI-->>WS: XAI bundle
-        WS->>WS: Anomaly detection on vitals
-        WS->>WS: Risk trend calculation
-        WS->>WS: Risk forecast (next 5 steps)
-        WS->>U: Full payload (vitals + prediction + XAI + anomalies + trend + forecast)
-        alt Risk > threshold
-            WS->>DB: Store Alert with XAI
-            WS->>U: Alert with explanation
-        end
-        alt Unacknowledged alert timeout
-            WS->>U: Escalated Alert
-        end
-    end
-
-    U->>WS: Stop Simulation
-    WS->>DB: Save session + auto-generate report
-    WS-->>U: Session Summary
-```
+**Key Pages:**
+- **Login** — Role-aware authentication
+- **Doctor Dashboard** — Active sessions, patient list, alerts
+- **Org Admin Dashboard** — Staff stats, organization info
+- **Monitoring** — Real-time vitals, XAI explanations, alerts
+- **Patients** — Patient registry and management
+- **Alerts** — Alert history and escalation tracking
+- **Model Info** — Model transparency and fairness metrics
 
 ---
 
 ## Testing & Validation
 
-### Automated Tests
-```bash
-# Backend
-cd backend
-pip install -r requirements.txt
-pytest tests/ -v
-```
-- Auth (register, login, token)
-- Patient CRUD
-- Prediction + risk assessment
-- Simulation engine generates plausible vitals (within clinical ranges)
-- SHAP returns correct dimensions, base + contributions ≈ prediction
-- Attention weights sum to ~1.0
-- MC Dropout produces variance across passes
-- What-If correctly reflects parameter modifications
-- Counterfactual suggestions within clinical ranges
-- Anomaly detection flags known outliers
-- Alert escalation fires after timeout
+### Test the Role Hierarchy
 
-### Model Validation
 ```bash
-python backend/ml/train_model.py --validate
-```
-- Accuracy ≥ 85%, AUC ≥ 0.8
-- Saved model loads and predicts
-- Attention layer outputs valid weights
+# 1. Login as Super Admin
+curl -X POST http://localhost:8000/api/auth/login \
+  -d '{"email":"admin@dialysisguard.com","password":"SuperAdminPassword123!"}'
+# ✅ Expect: access_token, role="super_admin"
 
-### Frontend Initialization
-```bash
-cd frontend
-npm run build
-npm start
+# 2. Try to access admin endpoints as org_admin
+curl -X GET http://localhost:8000/api/admin/organizations \
+  -H "Authorization: Bearer <org_admin_token>"
+# ❌ Expect: 403 Forbidden (Insufficient permissions)
+
+# 3. Access org endpoints as org_admin
+curl -X GET http://localhost:8000/api/org/summary \
+  -H "Authorization: Bearer <org_admin_token>"
+# ✅ Expect: 200 OK with organization summary
+
+# 4. Create organization (super admin only)
+curl -X POST http://localhost:8000/api/admin/organizations \
+  -H "Authorization: Bearer <super_admin_token>" \
+  -d '{"name":"Test Hospital","code":"TH"}'
+# ✅ Expect: 200 OK with organization created
+
+# 5. Create org admin and retrieve temporary password
+curl -X POST http://localhost:8000/api/admin/organizations/{org_id}/org-admins \
+  -H "Authorization: Bearer <super_admin_token>" \
+  -d '{"name":"Manager","email":"mgr@test.com","role":"org_admin"}'
+# ✅ Expect: 200 OK with user and temporary_password
+
+# 6. Login with org admin (must change password first)
+curl -X POST http://localhost:8000/api/auth/login \
+  -d '{"email":"mgr@test.com","password":"temporary_password"}'
+# ❌ Expect: 403 Password change required
+
+# 7. Change password
+curl -X POST http://localhost:8000/api/auth/change-password \
+  -H "Authorization: Bearer <temp_token>" \
+  -d '{"current_password":"temporary_password","new_password":"NewPass123"}'
+# ✅ Expect: 200 OK
+
+# 8. Login with new password
+curl -X POST http://localhost:8000/api/auth/login \
+  -d '{"email":"mgr@test.com","password":"NewPass123"}'
+# ✅ Expect: access_token, role="org_admin"
+
+# 9. Org admin creates doctor
+curl -X POST http://localhost:8000/api/org/staff \
+  -H "Authorization: Bearer <org_admin_token>" \
+  -d '{"name":"Dr. Smith","email":"smith@test.com","role":"doctor"}'
+# ✅ Expect: 200 OK with user and temporary_password
+
+# 10. Org admin tries to create super admin (should fail)
+curl -X POST http://localhost:8000/api/org/staff \
+  -H "Authorization: Bearer <org_admin_token>" \
+  -d '{"name":"Bad Actor","email":"bad@test.com","role":"super_admin"}'
+# ❌ Expect: 400 Bad Request (Staff role must be doctor or nurse)
 ```
 
 ### Manual Testing Runbook
-1. **Login/register flow**: Authenticate via JWT.
-2. **Patient entry**: Create test patients with varied clinical fields.
-3. **Start simulation**: Verify unique vital trajectories generate per run.
-4. **Real-time updates**: Ensure risk gauge, confidence band, trend arrow, and forecast update correctly.
-5. **XAI Integration**: Verify SHAP panel, NL explanation, and anomaly markers react dynamically.
-6. **Critical pathways**: Confirm audio alert sounds on CRITICAL events.
-7. **Simulation constraints**: Wait for timeout and observe alert escalation.
-8. **Explainability Dashboard**: Open the full dashboard, test What-If sliders, and generate counterfactuals.
-9. **Session comparison**: Run 2 separate sessions for the same patient and compare results side-by-side.
-10. **Command Center**: Open the multi-patient command center, start 3+ sessions, verify priority grid sorting.
-11. **Report Generation**: Stop a session and verify auto-generated endpoint report payloads.
-12. **Roles**: Test difference between restricted `caregiver` and full `doctor` access.
 
+1. **Super Admin Flow**: Login → Create org → Create org admin → Verify org admin login
+2. **Org Admin Flow**: Login → Create doctors/nurses → View staff list → Disable staff
+3. **Doctor Flow**: Login → Access patient list → Start session → Monitor in real-time
+4. **Role Isolation**: Try accessing endpoints of other roles → Verify 403 responses
+5. **Organization Scoping**: Doctor from Org A cannot see patients from Org B
+6. **Password Change**: Verify force change on first login with temporary password
+
+---
+
+## Deployment
+
+### Production Checklist
+
+- [ ] Set `DEBUG=false` in `.env`
+- [ ] Generate strong `JWT_SECRET` (min 32 characters)
+- [ ] Set unique `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_PASSWORD`
+- [ ] Configure `MONGODB_URI` to point to production database
+- [ ] Update `CORS_ORIGINS` to match frontend domain
+- [ ] Enable HTTPS on frontend and backend
+- [ ] Set up MongoDB backups
+- [ ] Monitor logs for errors and unauthorized access attempts
+- [ ] Run preflight checks before deployment
+
+### Docker Deployment (Optional)
+
+```dockerfile
+# backend/Dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY . .
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+```dockerfile
+# frontend/Dockerfile
+FROM node:20-alpine as builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+FROM node:20-alpine
+WORKDIR /app
+COPY --from=builder /app/next.config.mjs ./
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package*.json ./
+EXPOSE 3000
+CMD ["npm", "start"]
+```
+
+---
+
+## Troubleshooting
+
+### Issue: "Super admin seed skipped"
+**Solution**: Make sure `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_PASSWORD` are set in `.env`. Restart the backend.
+
+### Issue: "Invalid credentials" on super admin login
+**Solution**: Double-check the email and password in `.env` match exactly. Check server logs for the seed status.
+
+### Issue: "User is not assigned to an organization"
+**Solution**: Non-super-admin users must have an `org_id`. Make sure the user was created with an organization.
+
+### Issue: "Insufficient permissions"
+**Solution**: User role doesn't have access to that endpoint. Check role requirements in the API docs.
+
+### Issue: "Organization suspended"
+**Solution**: Super admin suspended the organization. Use the activate endpoint to reactivate.
+
+### Issue: "Password change required" error
+**Solution**: User was created with a temporary password. They must change it before accessing other endpoints.
+
+---
+
+## API Documentation
+
+Full OpenAPI documentation available at:
+```
+http://localhost:8000/docs
+```
+
+This interactive interface allows you to:
+- View all endpoints and their parameters
+- Test API calls directly
+- See request/response examples
+- View authentication requirements
+
+---
+
+## Performance & Scalability
+
+- **MongoDB Indexing**: Ensure indices on `email`, `org_id`, `role` for fast lookups
+- **JWT Token Caching**: Frontend caches token in localStorage
+- **WebSocket Connection Pooling**: Multiple simultaneous sessions supported
+- **Session Timeout**: 24 hours by default (configurable via `JWT_EXPIRATION_HOURS`)
+
+---
+
+## Security Notes
+
+1. **Password Hashing**: bcrypt with auto-salting
+2. **JWT Tokens**: HS256 algorithm, expiring after 24 hours
+3. **CORS Protection**: Restricted to configured origins
+4. **Organization Scoping**: All data queries scoped by `org_id` for multi-tenancy
+5. **Role-Based Access Control**: Enforced at endpoint level with `require_roles()`
+6. **Super Admin Protection**: Can only be disabled/modified by other super admins
+7. **Temporary Passwords**: Shown once, force change on first login
+8. **Session Isolation**: Users can only access their organization's data
+
+---
+
+## Contributing & Development
+
+1. Fork/clone the repository
+2. Create a feature branch (`git checkout -b feature/your-feature`)
+3. Make changes and test locally
+4. Run backend tests: `pytest backend/tests/`
+5. Run frontend tests: `npm test`
+6. Commit with meaningful messages
+7. Push and create a pull request
+
+---
+
+## License
+
+Proprietary - DialysisGuard Healthcare System
+
+---
+
+## Support
+
+For issues, questions, or contributions:
+- Check the API docs at `http://localhost:8000/docs`
+- Review logs in `backend/` for detailed error messages
+- Contact the development team at `support@dialysisguard.com`
+
+---
+
+**Last Updated**: April 29, 2026  
+**Version**: 1.0.0 with Enterprise Role-Based Access Control

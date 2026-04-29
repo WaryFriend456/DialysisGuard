@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     JWT_SECRET: str = os.getenv("JWT_SECRET", "dialysisguard-secret-key-change-in-production")
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION_HOURS: int = 24
+    SUPER_ADMIN_EMAIL: str | None = os.getenv("SUPER_ADMIN_EMAIL")
+    SUPER_ADMIN_PASSWORD: str | None = os.getenv("SUPER_ADMIN_PASSWORD")
+    SUPER_ADMIN_NAME: str = os.getenv("SUPER_ADMIN_NAME", "System Admin")
     
     # CORS
     CORS_ORIGINS: list = ["http://localhost:3000", "http://127.0.0.1:3000"]

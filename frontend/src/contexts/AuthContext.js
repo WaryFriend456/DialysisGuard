@@ -5,6 +5,16 @@ import { auth } from '@/lib/api';
 
 const AuthContext = createContext(null);
 
+export function dashboardPathForRole(role) {
+    const paths = {
+        super_admin: '/admin/organizations',
+        org_admin: '/admin/staff',
+        doctor: '/dashboard/doctor',
+        nurse: '/dashboard/nurse',
+    };
+    return paths[role] || '/login';
+}
+
 function getStoredToken() {
     if (typeof window === 'undefined') return null;
     return localStorage.getItem('token');
@@ -21,7 +31,12 @@ export function AuthProvider({ children }) {
         let cancelled = false;
         auth.me()
             .then((currentUser) => {
-                if (!cancelled) setUser(currentUser);
+                if (!cancelled) {
+                    setUser(currentUser);
+                    if (currentUser.must_change_password && window.location.pathname !== '/change-password') {
+                        window.location.href = '/change-password';
+                    }
+                }
             })
             .catch(() => {
                 if (!cancelled) {
@@ -46,12 +61,11 @@ export function AuthProvider({ children }) {
         return res.user;
     };
 
-    const register = async (data) => {
-        const res = await auth.register(data);
-        localStorage.setItem('token', res.access_token);
-        setUser(res.user);
-        setLoading(false);
-        return res.user;
+    const changePassword = async (currentPassword, newPassword) => {
+        await auth.changePassword({ current_password: currentPassword, new_password: newPassword });
+        const currentUser = await auth.me();
+        setUser(currentUser);
+        return currentUser;
     };
 
     const logout = () => {
@@ -64,7 +78,7 @@ export function AuthProvider({ children }) {
         user,
         loading,
         login,
-        register,
+        changePassword,
         logout,
     }), [loading, user]);
 

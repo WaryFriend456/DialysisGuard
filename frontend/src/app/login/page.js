@@ -1,10 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Activity, AlertCircle, ArrowRight } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
+import { dashboardPathForRole, useAuth } from '@/contexts/AuthContext';
 
 const INPUT_CLS =
     'w-full rounded-xl border border-border-subtle bg-bg-secondary px-3.5 py-2.5 text-sm text-text-primary placeholder:text-text-muted transition-colors focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30';
@@ -23,7 +22,7 @@ export default function LoginPage() {
         setLoading(true);
         try {
             const user = await login(email, password);
-            router.push(user.role === 'doctor' ? '/dashboard/doctor' : '/dashboard/caregiver');
+            router.push(user.must_change_password ? '/change-password' : dashboardPathForRole(user.role));
         } catch (err) {
             setError(err.message || 'Login failed');
         } finally {
@@ -90,13 +89,7 @@ export default function LoginPage() {
                         {!loading && <ArrowRight className="h-4 w-4" />}
                     </button>
                 </form>
-
-                <p className="mt-6 text-sm text-text-muted">
-                    Don&apos;t have an account?{' '}
-                    <Link href="/register" className="font-semibold text-accent transition-colors hover:text-accent-hover">
-                        Register
-                    </Link>
-                </p>
+                <p className="mt-6 text-sm text-text-muted">Account creation is handled by your administrator.</p>
             </div>
         </div>
     );

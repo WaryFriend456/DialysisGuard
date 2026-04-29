@@ -1,7 +1,7 @@
 'use client';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/contexts/AuthContext';
+import { dashboardPathForRole, useAuth } from '@/contexts/AuthContext';
 import { Loader2 } from 'lucide-react';
 
 export default function Home() {
@@ -11,7 +11,7 @@ export default function Home() {
   useEffect(() => {
     if (!loading) {
       if (user) {
-        router.push(user.role === 'doctor' ? '/dashboard/doctor' : '/dashboard/caregiver');
+        router.push(user.must_change_password ? '/change-password' : dashboardPathForRole(user.role));
       } else {
         router.push('/login');
       }
