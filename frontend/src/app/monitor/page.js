@@ -1,488 +1,506 @@
 'use client';
-import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import Sidebar from '@/components/Sidebar';
-import { useAuth } from '@/contexts/AuthContext';
-import { sessions, patients as patientsApi, connectMonitor, alerts as alertsApi } from '@/lib/api';
+import {
+    AlertTriangle,
+    Brain,
+    CheckCircle2,
+    Eye,
+    Heart,
+    Loader2,
+    Minus,
+    MonitorDot,
+    Play,
+    Square,
+    TrendingDown,
+    TrendingUp,
+    Users,
+    Zap,
+} from 'lucide-react';
+import PageShell from '@/components/PageShell';
+import { dashboardPathForRole, useAuth } from '@/contexts/AuthContext';
+import { useMonitoring } from '@/contexts/MonitoringContext';
+import { alerts as alertsApi, patients as patientsApi } from '@/lib/api';
+import { cn } from '@/lib/utils';
 
-function MonitorContent() {
-    const { user, loading } = useAuth();
-    const router = useRouter();
-    const searchParams = useSearchParams();
-    const patientId = searchParams.get('patient');
+const RISK_COLOR = {
+    low: 'text-risk-low',
+    moderate: 'text-risk-moderate',
+    high: 'text-risk-high',
+    critical: 'text-risk-critical',
+};
 
-    const [patient, setPatient] = useState(null);
-    const [sessionId, setSessionId] = useState(null);
-    const [connected, setConnected] = useState(false);
-    const [currentStep, setCurrentStep] = useState(0);
-    const [riskProfile, setRiskProfile] = useState('');
-    const [latestData, setLatestData] = useState(null);
-    const [vitalsHistory, setVitalsHistory] = useState([]);
-    const [riskHistory, setRiskHistory] = useState([]);
-    const [activeAlerts, setActiveAlerts] = useState([]);
-    const [sessionComplete, setSessionComplete] = useState(false);
-    const [screenFlash, setScreenFlash] = useState(false);
-    const wsRef = useRef(null);
-    const alertSoundRef = useRef(null);
+const RISK_BG = {
+    low: 'badge-risk-low',
+    moderate: 'badge-risk-moderate',
+    high: 'badge-risk-high',
+    critical: 'badge-risk-critical',
+    LOW: 'badge-risk-low',
+    MODERATE: 'badge-risk-moderate',
+    HIGH: 'badge-risk-high',
+    CRITICAL: 'badge-risk-critical',
+};
 
-    useEffect(() => {
-        if (!loading && !user) router.push('/login');
-    }, [user, loading, router]);
-
-    useEffect(() => {
-        if (user && patientId) {
-            patientsApi.get(patientId).then(setPatient).catch(e => {
-                alert('Patient not found');
-                router.push('/patients');
-            });
-        }
-    }, [user, patientId, router]);
-
-    const startSession = async (profile) => {
-        try {
-            const session = await sessions.create({
-                patient_id: patientId,
-                risk_profile: profile || undefined
-            });
-            setSessionId(session.id);
-            setRiskProfile(profile);
-
-            const ws = connectMonitor(
-                session.id,
-                handleMessage,
-                (e) => console.error('WS error:', e),
-                () => { setConnected(false); }
-            );
-            wsRef.current = ws;
-            setConnected(true);
-        } catch (e) {
-            alert('Failed to start session: ' + e.message);
-        }
-    };
-
-    const stopSession = async () => {
-        if (wsRef.current) {
-            wsRef.current.close();
-            wsRef.current = null;
-        }
-        if (sessionId) {
-            try { await sessions.stop(sessionId); } catch (e) { }
-        }
-        setConnected(false);
-        setSessionComplete(true);
-    };
-
-    const handleMessage = useCallback((data) => {
-        if (data.type === 'session_start') {
-            setRiskProfile(data.risk_profile);
-            return;
-        }
-        if (data.type === 'session_complete') {
-            setSessionComplete(true);
-            setConnected(false);
-            return;
-        }
-        if (data.type === 'monitoring_data') {
-            setLatestData(data);
-            setCurrentStep(data.step);
-
-            setVitalsHistory(prev => [...prev, {
-                step: data.step,
-                time: data.time_minutes,
-                bp: data.vitals.bp,
-                hr: data.vitals.hr
-            }]);
-
-            setRiskHistory(prev => [...prev, {
-                step: data.step,
-                risk: data.prediction.risk_probability,
-                level: data.prediction.risk_level
-            }]);
-
-            // Handle alerts
-            if (data.alert) {
-                setActiveAlerts(prev => [data.alert, ...prev]);
-
-                if (data.alert.severity === 'CRITICAL') {
-                    setScreenFlash(true);
-                    setTimeout(() => setScreenFlash(false), 500);
-                    try {
-                        if (alertSoundRef.current) alertSoundRef.current.play().catch(() => { });
-                    } catch (e) { }
-                }
-            }
-
-            if (data.escalation_alerts?.length > 0) {
-                setActiveAlerts(prev => [...data.escalation_alerts, ...prev]);
-            }
-        }
-    }, []);
-
-    const acknowledgeAlert = async (alertId) => {
-        try {
-            await alertsApi.acknowledge(alertId);
-            setActiveAlerts(prev => prev.filter(a => a.id !== alertId));
-        } catch (e) { }
-    };
-
-    if (loading || !user) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><div className="spinner" /></div>;
-
-    if (!patientId) return (
-        <div className="page-container">
-            <Sidebar />
-            <div className="main-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <div className="card" style={{ textAlign: 'center', padding: 40 }}>
-                    <p style={{ fontSize: '2rem', marginBottom: 12 }}>🔴</p>
-                    <h2>No Patient Selected</h2>
-                    <p style={{ color: 'var(--text-muted)', marginTop: 8 }}>
-                        Go to the Patients page to select a patient for monitoring.
-                    </p>
-                    <button className="btn btn-primary" style={{ marginTop: 20 }} onClick={() => router.push('/patients')}>
-                        Go to Patients
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-
-    const risk = latestData?.prediction;
-    const xai = latestData?.xai;
-    const vitals = latestData?.vitals;
-    const anomalies = latestData?.anomalies || [];
+function Sparkline({ data, accessor, dangerTest, baseColor, dangerColor }) {
+    const values = data.slice(-20).map(accessor);
+    if (!values.length) return null;
+    const min = Math.min(...values) - 4;
+    const max = Math.max(...values) + 4;
+    const range = max - min || 1;
 
     return (
-        <div className="page-container">
-            <Sidebar />
-            <div className="main-content">
-                {/* Screen flash for critical alerts */}
-                {screenFlash && <div className="screen-flash" />}
+        <div className="flex h-14 items-end gap-0.75">
+            {values.map((value, index) => {
+                const height = Math.max(6, ((value - min) / range) * 56);
+                const color = dangerTest?.(value) ? dangerColor : baseColor;
+                return (
+                    <div
+                        key={`${value}-${index}`}
+                        className="flex-1 rounded-full"
+                        style={{ height, background: color, opacity: 0.35 + (index / values.length) * 0.65 }}
+                    />
+                );
+            })}
+        </div>
+    );
+}
 
-                {/* Audio element for critical alerts */}
-                <audio ref={alertSoundRef} preload="auto">
-                    <source src="data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU" type="audio/wav" />
-                </audio>
+function MonitorContent() {
+    const router = useRouter();
+    const searchParams = useSearchParams();
+    const patientIdFromQuery = searchParams.get('patient');
+    const { user, loading } = useAuth();
+    const {
+        session,
+        connected,
+        data,
+        history,
+        alerts,
+        error,
+        status,
+        patientSummary,
+        hasActiveSession,
+        startSession,
+        stopSession,
+        ensurePatientSession,
+    } = useMonitoring();
 
-                {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-                    <div>
-                        <h1 style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                            {connected && <span style={{
-                                width: 12, height: 12, borderRadius: '50%',
-                                background: 'var(--risk-low)', boxShadow: '0 0 8px var(--risk-low)',
-                                display: 'inline-block', animation: 'pulse-text 2s infinite'
-                            }} />}
-                            Real-Time Monitor
-                        </h1>
-                        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: 4 }}>
-                            {patient?.name || `Patient #${patientId?.slice(0, 6)}`}
-                            {riskProfile && ` · Profile: ${riskProfile}`}
-                            {connected && ` · Step ${currentStep + 1}/30`}
-                        </p>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                        {!connected && !sessionComplete && (
-                            <>
-                                <button className="btn btn-primary" onClick={() => startSession(null)}>
-                                    🔴 Start (Auto Profile)
-                                </button>
-                                <button className="btn btn-ghost" onClick={() => startSession('high')}>
-                                    ⚡ High Risk
-                                </button>
-                                <button className="btn btn-ghost" onClick={() => startSession('critical')}>
-                                    🔥 Critical
-                                </button>
-                            </>
-                        )}
-                        {connected && (
-                            <button className="btn btn-danger" onClick={stopSession}>⏹ Stop Session</button>
-                        )}
-                        {sessionComplete && (
-                            <button className="btn btn-primary" onClick={() => {
-                                setSessionComplete(false); setLatestData(null);
-                                setVitalsHistory([]); setRiskHistory([]);
-                                setActiveAlerts([]); setCurrentStep(0);
-                            }}>🔄 New Session</button>
-                        )}
-                    </div>
+    const [patient, setPatient] = useState(null);
+    const [pageError, setPageError] = useState(null);
+    const activePatientId = patientIdFromQuery || session?.patient_id || null;
+    const patientLoading = Boolean(activePatientId) && patient?.id !== activePatientId;
+
+    useEffect(() => {
+        if (!loading && !user) {
+            router.push('/login');
+        }
+    }, [loading, router, user]);
+
+    useEffect(() => {
+        if (!user || !patientIdFromQuery) return;
+        ensurePatientSession(patientIdFromQuery, { autoStart: false });
+    }, [ensurePatientSession, patientIdFromQuery, user]);
+
+    useEffect(() => {
+        if (!activePatientId || !user) return;
+
+        let cancelled = false;
+        patientsApi.get(activePatientId)
+            .then((record) => {
+                if (!cancelled) {
+                    setPatient(record);
+                    setPageError(null);
+                }
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setPageError('Unable to load the selected patient.');
+                }
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [activePatientId, user]);
+    const screenFlash = alerts[0]?.severity === 'CRITICAL';
+
+    const latestPrediction = data?.prediction;
+    const latestVitals = data?.vitals;
+    const latestXai = data?.xai;
+    const anomalies = data?.anomalies || [];
+    const topAlerts = alerts.slice(0, 3);
+
+    const riskTrend = latestXai?.risk_trend;
+    const trendIndicator = useMemo(() => {
+        if (riskTrend === 'increasing') {
+            return { icon: TrendingUp, label: 'Rising', color: 'text-risk-high' };
+        }
+        if (riskTrend === 'decreasing') {
+            return { icon: TrendingDown, label: 'Improving', color: 'text-risk-low' };
+        }
+        return { icon: Minus, label: 'Stable', color: 'text-text-muted' };
+    }, [riskTrend]);
+    const TrendIcon = trendIndicator.icon;
+
+    const acknowledgeAlert = async (alertId) => {
+        if (!alertId) return;
+        try {
+            await alertsApi.acknowledge(alertId);
+        } catch {
+            setPageError('Unable to acknowledge the alert right now.');
+        }
+    };
+
+    const handleStart = async (riskProfile = null) => {
+        if (!activePatientId) return;
+        await startSession(activePatientId, riskProfile);
+    };
+
+    const handleResume = async () => {
+        if (!activePatientId) return;
+        await ensurePatientSession(activePatientId, { autoStart: false });
+    };
+
+    if (loading || !user) {
+        return (
+            <div className="flex min-h-screen items-center justify-center bg-bg-primary">
+                <Loader2 className="h-8 w-8 animate-spin text-accent" />
+            </div>
+        );
+    }
+
+    return (
+        <PageShell>
+            {screenFlash && <div className="pointer-events-none fixed inset-0 z-50 bg-risk-critical/10" />}
+
+            {!activePatientId && !hasActiveSession && (
+                <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+                    <section className="card overflow-hidden">
+                        <div className="border-b border-border-subtle px-6 py-5">
+                            <p className="text-xs uppercase tracking-[0.2em] text-text-muted">No session selected</p>
+                            <h2 className="mt-2 text-2xl font-semibold text-text-primary">Select a patient to begin or resume monitoring</h2>
+                            <p className="mt-2 max-w-2xl text-sm text-text-secondary">
+                                The monitor workspace stays available from the sidebar. If a session is already running, the header chip above returns you directly to it.
+                            </p>
+                        </div>
+                        <div className="grid gap-4 px-6 py-6 sm:grid-cols-2">
+                            <button
+                                onClick={() => router.push('/patients')}
+                                className="rounded-3xl bg-accent px-5 py-4 text-left text-sm font-medium text-bg-primary transition-transform hover:-translate-y-0.5"
+                            >
+                                <p className="flex items-center gap-2 text-base font-semibold">
+                                    <Users className="h-4 w-4" />
+                                    Open patient list
+                                </p>
+                                <p className="mt-2 text-bg-primary/80">Choose a patient profile and launch bedside monitoring.</p>
+                            </button>
+                            <button
+                                onClick={() => router.push(dashboardPathForRole(user.role))}
+                                className="rounded-3xl border border-border-subtle bg-surface px-5 py-4 text-left text-sm font-medium text-text-primary transition-transform hover:-translate-y-0.5"
+                            >
+                                <p className="text-base font-semibold">Return to dashboard</p>
+                                <p className="mt-2 text-text-secondary">Review alerts, patient queue, and current operational summary.</p>
+                            </button>
+                        </div>
+                    </section>
+
+                    <section className="card p-6">
+                        <p className="text-xs uppercase tracking-[0.2em] text-text-muted">Monitoring behavior</p>
+                        <div className="mt-4 space-y-3 text-sm text-text-secondary">
+                            <p>Readings are delivered on a 5-7 second wall-clock cadence.</p>
+                            <p>Leaving the monitor page no longer stops an active session.</p>
+                            <p>Returning through the sidebar resumes the in-flight session instead of forcing a restart.</p>
+                        </div>
+                    </section>
                 </div>
+            )}
 
-                {/* Active Alerts Bar */}
-                {activeAlerts.length > 0 && (
-                    <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {activeAlerts.slice(0, 3).map((a, i) => (
-                            <div key={i} className={`alert-banner ${a.severity?.toLowerCase()}`}>
-                                <span className={`badge badge-${a.severity?.toLowerCase()}`}>
-                                    {a.escalation_level > 0 ? '⬆️ ' : ''}{a.severity}
-                                </span>
-                                <span style={{ flex: 1, fontSize: '0.85rem' }}>{a.message}</span>
-                                <button className="btn btn-ghost btn-sm" onClick={() => acknowledgeAlert(a.id)}>
-                                    ✓ Ack
-                                </button>
-                            </div>
-                        ))}
-                    </div>
-                )}
+            {activePatientId && (
+                <div className="space-y-6">
+                    {(pageError || error) && (
+                        <div className="flex items-center gap-3 rounded-3xl border border-risk-critical/30 bg-risk-critical-bg px-5 py-4 text-sm text-risk-critical">
+                            <AlertTriangle className="h-4 w-4 shrink-0" />
+                            <span>{pageError || error}</span>
+                        </div>
+                    )}
 
-                {!connected && !latestData && !sessionComplete && (
-                    <div className="card" style={{ textAlign: 'center', padding: 60 }}>
-                        <p style={{ fontSize: '3rem', marginBottom: 16 }}>🫀</p>
-                        <h2>Ready to Monitor</h2>
-                        <p style={{ color: 'var(--text-muted)', marginTop: 8, maxWidth: 500, marginInline: 'auto' }}>
-                            Start a session to begin real-time AI monitoring. The system will simulate
-                            realistic vital signs and predict instability using the trained GRU model.
-                        </p>
-                    </div>
-                )}
-
-                {latestData && (
-                    <>
-                        {/* Top Row: Risk Gauge + Vitals */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr 1fr', gap: 16, marginBottom: 16 }}>
-                            {/* Risk Gauge */}
-                            <div className="card" style={{ textAlign: 'center', padding: 20 }}>
-                                <h4 style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                    Instability Risk
-                                </h4>
-                                <div className={`risk-value ${risk?.risk_level?.toLowerCase()}`}>
-                                    {(risk?.risk_probability * 100).toFixed(0)}%
+                    <section className="card p-6">
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-3">
+                                    <p className="text-xs uppercase tracking-[0.2em] text-text-muted">Patient context</p>
+                                    {connected && (
+                                        <span className="flex items-center gap-1.5 rounded-full bg-risk-low/10 px-2.5 py-0.5 text-[11px] font-semibold text-risk-low">
+                                            <span className="pulse-dot bg-risk-low" />
+                                            Live
+                                        </span>
+                                    )}
+                                    {hasActiveSession && !connected && (
+                                        <span className="flex items-center gap-1.5 rounded-full bg-risk-moderate/10 px-2.5 py-0.5 text-[11px] font-semibold text-risk-moderate">
+                                            Paused
+                                        </span>
+                                    )}
                                 </div>
-                                <span className={`badge badge-${risk?.risk_level?.toLowerCase()}`} style={{ marginTop: 8 }}>
-                                    {risk?.risk_level}
-                                </span>
-
-                                {/* Confidence interval */}
-                                <div style={{ marginTop: 12, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                    95% CI: {(risk?.confidence?.lower * 100).toFixed(0)}% – {(risk?.confidence?.upper * 100).toFixed(0)}%
-                                </div>
-
-                                {/* Trend arrow */}
-                                {xai?.risk_trend && (
-                                    <div className={`trend-arrow ${xai.risk_trend}`} style={{ marginTop: 8 }}>
-                                        {xai.risk_trend === 'increasing' ? '↑ Rising' :
-                                            xai.risk_trend === 'decreasing' ? '↓ Falling' : '→ Stable'}
-                                    </div>
+                                <h2 className="mt-3 text-2xl font-semibold text-text-primary">
+                                    {patient?.name || patientSummary?.name || 'Selected patient'}
+                                </h2>
+                                <p className="mt-1.5 text-sm text-text-secondary">
+                                    {patientLoading
+                                        ? 'Loading patient profile\u2026'
+                                        : patient
+                                            ? `${patient.age} years \u00b7 ${patient.gender} \u00b7 ${patient.weight} kg \u00b7 ${patient.disease_severity} severity`
+                                            : 'Patient profile unavailable'}
+                                </p>
+                                {session && (
+                                    <p className="mt-1 text-xs uppercase tracking-wide text-text-muted">
+                                        Step {session.current_step || 0}/{session.total_steps || 30}
+                                        {data?.time_minutes != null ? ` \u00b7 ${data.time_minutes} min elapsed` : ''}
+                                        {alerts.length > 0 ? ` \u00b7 ${alerts.length} alert${alerts.length > 1 ? 's' : ''}` : ''}
+                                    </p>
                                 )}
                             </div>
-
-                            {/* BP */}
-                            <div className="card" style={{ padding: 20 }}>
-                                <h4 style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                    Blood Pressure
-                                </h4>
-                                <div style={{ fontSize: '2.2rem', fontWeight: 800, color: vitals?.bp < 80 ? 'var(--risk-critical)' : 'var(--accent-cyan)' }}>
-                                    {vitals?.bp?.toFixed(0)} <span style={{ fontSize: '1rem', fontWeight: 400, color: 'var(--text-muted)' }}>mmHg</span>
-                                </div>
-                                <div style={{ marginTop: 8, fontSize: '0.8rem', color: vitals?.bp_change < -5 ? 'var(--risk-critical)' : 'var(--text-muted)' }}>
-                                    Change: {vitals?.bp_change > 0 ? '+' : ''}{vitals?.bp_change?.toFixed(1)}
-                                </div>
-                                {/* Mini sparkline as text */}
-                                <div style={{ marginTop: 12, display: 'flex', gap: 2, alignItems: 'end', height: 32 }}>
-                                    {vitalsHistory.slice(-15).map((v, i) => {
-                                        const h = Math.max(4, ((v.bp - 60) / 130) * 32);
-                                        return <div key={i} style={{
-                                            width: 4, height: h, borderRadius: 2,
-                                            background: v.bp < 80 ? 'var(--risk-critical)' : 'var(--accent-cyan)',
-                                            opacity: 0.4 + (i / 15) * 0.6
-                                        }} />;
-                                    })}
-                                </div>
+                            <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
+                                {!hasActiveSession && (
+                                    <>
+                                        <button
+                                            onClick={() => handleStart(null)}
+                                            className="flex items-center gap-2 rounded-2xl bg-accent px-4 py-2.5 text-sm font-semibold text-bg-primary"
+                                        >
+                                            <Play className="h-4 w-4" />
+                                            Start monitoring
+                                        </button>
+                                        <button
+                                            onClick={() => handleStart('high')}
+                                            className="flex items-center gap-2 rounded-2xl border border-risk-high/30 bg-risk-high-bg px-4 py-2.5 text-sm font-medium text-risk-high"
+                                        >
+                                            <Zap className="h-4 w-4" />
+                                            High-risk demo
+                                        </button>
+                                    </>
+                                )}
+                                {hasActiveSession && !connected && (
+                                    <button
+                                        onClick={handleResume}
+                                        className="flex items-center gap-2 rounded-2xl bg-accent px-4 py-2.5 text-sm font-semibold text-bg-primary"
+                                    >
+                                        <MonitorDot className="h-4 w-4" />
+                                        Resume session
+                                    </button>
+                                )}
+                                {connected && (
+                                    <button
+                                        onClick={stopSession}
+                                        className="flex items-center gap-2 rounded-2xl border border-risk-critical/30 bg-risk-critical-bg px-4 py-2.5 text-sm font-semibold text-risk-critical"
+                                    >
+                                        <Square className="h-4 w-4" />
+                                        Stop session
+                                    </button>
+                                )}
                             </div>
+                        </div>
+                    </section>
 
-                            {/* HR */}
-                            <div className="card" style={{ padding: 20 }}>
-                                <h4 style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                    Heart Rate
-                                </h4>
-                                <div style={{ fontSize: '2.2rem', fontWeight: 800, color: vitals?.hr > 110 ? 'var(--risk-critical)' : 'var(--accent-purple)' }}>
-                                    {vitals?.hr?.toFixed(0)} <span style={{ fontSize: '1rem', fontWeight: 400, color: 'var(--text-muted)' }}>bpm</span>
+                    {topAlerts.length > 0 && (
+                        <section className="space-y-3">
+                            {topAlerts.map((alert, index) => (
+                                <div
+                                    key={`${alert.id || alert.message}-${index}`}
+                                    className="flex items-center gap-3 rounded-3xl border border-risk-high/25 bg-risk-high-bg px-5 py-4"
+                                >
+                                    <span className={cn('rounded-full px-3 py-1 text-xs font-semibold', RISK_BG[alert.severity] || RISK_BG.HIGH)}>
+                                        {alert.severity}
+                                    </span>
+                                    <p className="flex-1 text-sm text-text-primary">{alert.message}</p>
+                                    {alert.id && (
+                                        <button
+                                            onClick={() => acknowledgeAlert(alert.id)}
+                                            className="rounded-2xl border border-border-subtle px-3 py-2 text-xs font-medium text-text-secondary hover:bg-surface-hover"
+                                        >
+                                            <CheckCircle2 className="h-4 w-4" />
+                                        </button>
+                                    )}
                                 </div>
-                                <div style={{ marginTop: 8, fontSize: '0.8rem', color: vitals?.hr_change > 5 ? 'var(--risk-high)' : 'var(--text-muted)' }}>
-                                    Change: {vitals?.hr_change > 0 ? '+' : ''}{vitals?.hr_change?.toFixed(1)}
-                                </div>
-                                <div style={{ marginTop: 12, display: 'flex', gap: 2, alignItems: 'end', height: 32 }}>
-                                    {vitalsHistory.slice(-15).map((v, i) => {
-                                        const h = Math.max(4, ((v.hr - 40) / 100) * 32);
-                                        return <div key={i} style={{
-                                            width: 4, height: h, borderRadius: 2,
-                                            background: v.hr > 110 ? 'var(--risk-critical)' : 'var(--accent-purple)',
-                                            opacity: 0.4 + (i / 15) * 0.6
-                                        }} />;
-                                    })}
-                                </div>
+                            ))}
+                        </section>
+                    )}
+
+                    <section className="grid gap-4 lg:grid-cols-3">
+                        <div className="card p-6">
+                            <p className="text-xs uppercase tracking-[0.2em] text-text-muted">Instability risk</p>
+                            <p className={cn('mt-4 text-5xl font-bold', RISK_COLOR[latestPrediction?.risk_level] || 'text-text-primary')}>
+                                {latestPrediction?.risk_probability != null ? `${Math.round(latestPrediction.risk_probability * 100)}%` : '--'}
+                            </p>
+                            <div className="mt-3 flex items-center gap-3">
+                                <span className={cn('rounded-full px-3 py-1 text-xs font-semibold', RISK_BG[latestPrediction?.risk_level] || RISK_BG.low)}>
+                                    {latestPrediction?.risk_level?.toUpperCase() || 'WAITING'}
+                                </span>
+                                <span className="text-xs text-text-muted">
+                                    CI {latestPrediction?.confidence?.lower != null ? `${Math.round(latestPrediction.confidence.lower * 100)}-${Math.round(latestPrediction.confidence.upper * 100)}%` : '--'}
+                                </span>
+                            </div>
+                            <div className={cn('mt-4 inline-flex items-center gap-2 text-sm font-medium', trendIndicator.color)}>
+                                <TrendIcon className="h-4 w-4" />
+                                {trendIndicator.label}
                             </div>
                         </div>
 
-                        {/* Anomalies */}
-                        {anomalies.length > 0 && (
-                            <div style={{ marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                                {anomalies.map((a, i) => (
-                                    <span key={i} className={`anomaly-marker ${a.severity}`}>
-                                        ⚠️ {a.type?.replace(/_/g, ' ')} ({a.feature?.replace('Current_', '')})
-                                    </span>
+                        <div className="card p-6">
+                            <p className="text-xs uppercase tracking-[0.2em] text-text-muted">Blood pressure</p>
+                            <p className={cn('mt-4 text-4xl font-bold', (latestVitals?.bp ?? 120) < 80 ? 'text-risk-critical' : 'text-text-primary')}>
+                                {latestVitals?.bp != null ? `${latestVitals.bp.toFixed(0)} mmHg` : '--'}
+                            </p>
+                            <p className="mt-2 text-sm text-text-secondary">Delta {latestVitals?.bp_change != null ? latestVitals.bp_change.toFixed(1) : '--'}</p>
+                            <div className="mt-4">
+                                <Sparkline
+                                    data={history.vitals}
+                                    accessor={(item) => item.bp}
+                                    dangerTest={(value) => value < 80}
+                                    baseColor="var(--color-accent)"
+                                    dangerColor="var(--color-risk-critical)"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="card p-6">
+                            <p className="text-xs uppercase tracking-[0.2em] text-text-muted">Heart rate</p>
+                            <p className={cn('mt-4 text-4xl font-bold', (latestVitals?.hr ?? 70) > 110 ? 'text-risk-critical' : 'text-text-primary')}>
+                                {latestVitals?.hr != null ? `${latestVitals.hr.toFixed(0)} bpm` : '--'}
+                            </p>
+                            <p className="mt-2 text-sm text-text-secondary">Delta {latestVitals?.hr_change != null ? latestVitals.hr_change.toFixed(1) : '--'}</p>
+                            <div className="mt-4">
+                                <Sparkline
+                                    data={history.vitals}
+                                    accessor={(item) => item.hr}
+                                    dangerTest={(value) => value > 110}
+                                    baseColor="var(--color-chart-5)"
+                                    dangerColor="var(--color-risk-critical)"
+                                />
+                            </div>
+                        </div>
+                    </section>
+
+                    <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+                        <div className="card p-6">
+                            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-text-muted">
+                                <Brain className="h-4 w-4" />
+                                AI explanation
+                            </div>
+                            <p className="mt-4 text-sm leading-7 text-text-secondary">
+                                {latestXai?.nl_explanation || 'The monitor will summarize why risk is changing as soon as live data arrives.'}
+                            </p>
+
+                            {latestXai?.risk_forecast_5step?.length > 0 && (
+                                <div className="mt-6">
+                                    <p className="text-xs uppercase tracking-[0.2em] text-text-muted">Forecast</p>
+                                    <div className="mt-3 grid grid-cols-5 gap-2">
+                                        {latestXai.risk_forecast_5step.map((value, index) => (
+                                            <div key={`${value}-${index}`} className="rounded-2xl border border-border-subtle bg-surface px-3 py-3 text-center">
+                                                <p className="text-xs text-text-muted">+{index + 1}</p>
+                                                <p className="mt-1 text-sm font-semibold text-text-primary">{Math.round(value * 100)}%</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="card p-6">
+                            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-text-muted">
+                                <AlertTriangle className="h-4 w-4" />
+                                Active findings
+                            </div>
+                            <div className="mt-4 space-y-3">
+                                {anomalies.length === 0 && (
+                                    <p className="text-sm text-text-secondary">No anomaly flags at the current step.</p>
+                                )}
+                                {anomalies.map((anomaly, index) => (
+                                    <div key={`${anomaly.type}-${index}`} className="rounded-2xl border border-border-subtle bg-surface px-4 py-3">
+                                        <p className="text-sm font-medium text-text-primary">{anomaly.type?.replace(/_/g, ' ')}</p>
+                                        <p className="mt-1 text-xs text-text-muted">{anomaly.feature?.replace('Current_', '') || 'Physiology'} · {anomaly.severity}</p>
+                                    </div>
                                 ))}
                             </div>
-                        )}
-
-                        {/* Middle Row: NL Explanation + Risk History */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-                            {/* NL Explanation */}
-                            <div className="card">
-                                <h4 style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 12 }}>
-                                    🧠 AI Explanation
-                                </h4>
-                                <div className="nl-explanation">
-                                    {xai?.nl_explanation || 'Waiting for AI analysis...'}
-                                </div>
-                            </div>
-
-                            {/* Risk Timeline */}
-                            <div className="card">
-                                <h4 style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 12 }}>
-                                    📈 Risk Timeline
-                                </h4>
-                                <div style={{ display: 'flex', gap: 2, alignItems: 'end', height: 80 }}>
-                                    {riskHistory.map((r, i) => {
-                                        const h = Math.max(4, r.risk * 80);
-                                        const color = r.risk >= 0.75 ? 'var(--risk-critical)' :
-                                            r.risk >= 0.50 ? 'var(--risk-high)' :
-                                                r.risk >= 0.30 ? 'var(--risk-moderate)' : 'var(--risk-low)';
-                                        return <div key={i} style={{
-                                            flex: 1, height: h, borderRadius: 2, background: color,
-                                            opacity: 0.5 + (i / riskHistory.length) * 0.5,
-                                            transition: 'height 0.3s ease'
-                                        }} />;
-                                    })}
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                                    <span>0 min</span>
-                                    <span>{latestData?.time_minutes} min</span>
-                                </div>
-
-                                {/* Forecast */}
-                                {xai?.risk_forecast_5step && (
-                                    <div style={{ marginTop: 12 }}>
-                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 6 }}>
-                                            📐 5-Step Forecast
-                                        </div>
-                                        <div style={{ display: 'flex', gap: 6 }}>
-                                            {xai.risk_forecast_5step.map((f, i) => (
-                                                <div key={i} style={{
-                                                    flex: 1, textAlign: 'center', padding: '4px 0',
-                                                    background: f >= 0.5 ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)',
-                                                    borderRadius: 4, fontSize: '0.75rem', fontWeight: 600,
-                                                    color: f >= 0.75 ? 'var(--risk-critical)' : f >= 0.5 ? 'var(--risk-high)' : f >= 0.3 ? 'var(--risk-moderate)' : 'var(--risk-low)'
-                                                }}>
-                                                    {(f * 100).toFixed(0)}%
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
                         </div>
+                    </section>
 
-                        {/* Bottom Row: SHAP + Attention */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                            {/* SHAP Top Features */}
-                            <div className="card">
-                                <h4 style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 16 }}>
-                                    🔬 Feature Attributions (SHAP)
-                                </h4>
-                                {xai?.top_features?.map((f, i) => {
-                                    const maxVal = Math.max(...(xai.top_features.map(x => x.abs_value) || [0.1]));
-                                    const pct = (f.abs_value / maxVal) * 100;
-                                    const isPositive = f.direction === 'risk_increasing';
-
+                    <section className="grid gap-4 xl:grid-cols-2">
+                        <div className="card p-6">
+                            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-text-muted">
+                                <Heart className="h-4 w-4" />
+                                Realtime feature attribution
+                            </div>
+                            <div className="mt-5 space-y-3">
+                                {(latestXai?.top_features || []).slice(0, 5).map((feature, index, items) => {
+                                    const max = Math.max(...items.map((entry) => entry.abs_value || 0.01), 0.01);
+                                    const width = `${(feature.abs_value / max) * 100}%`;
                                     return (
-                                        <div key={i} className="shap-bar">
-                                            <span className="shap-label">{f.name?.replace(/_/g, ' ')}</span>
-                                            <div className="shap-bar-track">
-                                                <div className={`shap-bar-fill ${isPositive ? 'positive' : 'negative'}`}
-                                                    style={{ width: `${pct}%` }} />
+                                        <div key={`${feature.name}-${index}`}>
+                                            <div className="mb-2 flex items-center justify-between gap-3 text-xs">
+                                                <span className="truncate text-text-secondary">{feature.name?.replace(/_/g, ' ')}</span>
+                                                <span className="font-mono text-text-primary">{feature.value?.toFixed?.(3) ?? feature.value}</span>
                                             </div>
-                                            <span className="shap-value" style={{
-                                                color: isPositive ? 'var(--risk-critical)' : 'var(--risk-low)'
-                                            }}>
-                                                {isPositive ? '+' : ''}{f.value?.toFixed(3)}
-                                            </span>
+                                            <div className="h-2 rounded-full bg-surface-hover">
+                                                <div
+                                                    className={cn('h-2 rounded-full', feature.direction === 'risk_increasing' ? 'bg-risk-critical' : 'bg-risk-low')}
+                                                    style={{ width }}
+                                                />
+                                            </div>
                                         </div>
                                     );
                                 })}
-                            </div>
-
-                            {/* Attention Weights */}
-                            <div className="card">
-                                <h4 style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 16 }}>
-                                    👁️ Temporal Attention
-                                </h4>
-                                {xai?.attention_weights && (
-                                    <>
-                                        <div style={{ display: 'flex', gap: 2, alignItems: 'end', height: 60, marginBottom: 8 }}>
-                                            {xai.attention_weights.map((w, i) => {
-                                                const h = Math.max(3, w * 60 / Math.max(...xai.attention_weights));
-                                                const opacity = 0.3 + (w / Math.max(...xai.attention_weights)) * 0.7;
-                                                return <div key={i} style={{
-                                                    flex: 1, height: h, borderRadius: 2,
-                                                    background: `rgba(6, 182, 212, ${opacity})`,
-                                                    transition: 'height 0.3s ease'
-                                                }} />;
-                                            })}
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                                            <span>0 min</span>
-                                            <span>Peak: {xai.attention_weights ? `${(xai.attention_weights.indexOf(Math.max(...xai.attention_weights))) * 8} min` : '-'}</span>
-                                            <span>232 min</span>
-                                        </div>
-                                    </>
+                                {!latestXai?.top_features?.length && (
+                                    <p className="text-sm text-text-secondary">Feature attribution will populate after the first readings arrive.</p>
                                 )}
                             </div>
                         </div>
 
-                        {/* Session Progress */}
-                        <div style={{ marginTop: 16 }}>
-                            <div style={{
-                                height: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 2, overflow: 'hidden'
-                            }}>
-                                <div style={{
-                                    height: '100%', width: `${((currentStep + 1) / 30) * 100}%`,
-                                    background: 'linear-gradient(90deg, var(--accent-cyan), var(--accent-purple))',
-                                    borderRadius: 2, transition: 'width 0.5s ease'
-                                }} />
+                        <div className="card p-6">
+                            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-text-muted">
+                                <Eye className="h-4 w-4" />
+                                Temporal attention
                             </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                <span>Step {currentStep + 1} / 30</span>
-                                <span>{latestData?.time_minutes || 0} / 232 min</span>
+                            <div className="mt-5">
+                                {latestXai?.attention_weights?.length ? (
+                                    <>
+                                        <div className="flex h-32 items-end gap-0.75">
+                                            {latestXai.attention_weights.map((weight, index) => {
+                                                const maxWeight = Math.max(...latestXai.attention_weights, 0.01);
+                                                return (
+                                                    <div
+                                                        key={`${weight}-${index}`}
+                                                        className="flex-1 rounded-t-2xl bg-accent/70"
+                                                        style={{ height: `${Math.max(8, (weight / maxWeight) * 128)}px`, opacity: 0.3 + (weight / maxWeight) * 0.7 }}
+                                                    />
+                                                );
+                                            })}
+                                        </div>
+                                        <div className="mt-3 flex items-center justify-between text-xs text-text-muted">
+                                            <span>Older steps</span>
+                                            <span>Most recent step</span>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <p className="text-sm text-text-secondary">Attention weights will appear once the sequence has enough context.</p>
+                                )}
                             </div>
                         </div>
-                    </>
-                )}
-
-                {/* Session Complete Report */}
-                {sessionComplete && !connected && (
-                    <div className="card" style={{ marginTop: 24, textAlign: 'center', padding: 40 }}>
-                        <p style={{ fontSize: '2rem', marginBottom: 12 }}>✅</p>
-                        <h2>Session Complete</h2>
-                        <p style={{ color: 'var(--text-muted)', marginTop: 8 }}>
-                            {vitalsHistory.length} vitals recorded · {activeAlerts.length} alerts generated
-                        </p>
-                        <div style={{ marginTop: 20, display: 'flex', gap: 12, justifyContent: 'center' }}>
-                            <button className="btn btn-primary" onClick={() => {
-                                setSessionComplete(false); setLatestData(null);
-                                setVitalsHistory([]); setRiskHistory([]);
-                                setActiveAlerts([]); setCurrentStep(0);
-                            }}>🔄 New Session</button>
-                            <button className="btn btn-ghost" onClick={() => router.push('/patients')}>Back to Patients</button>
-                        </div>
-                    </div>
-                )}
-            </div>
-        </div>
+                    </section>
+                </div>
+            )}
+        </PageShell>
     );
 }
 
 export default function MonitorPage() {
     return (
-        <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><div className="spinner" /></div>}>
+        <Suspense
+            fallback={
+                <div className="flex min-h-screen items-center justify-center bg-bg-primary">
+                    <Loader2 className="h-8 w-8 animate-spin text-accent" />
+                </div>
+            }
+        >
             <MonitorContent />
         </Suspense>
     );

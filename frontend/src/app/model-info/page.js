@@ -1,123 +1,145 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import Sidebar from '@/components/Sidebar';
+import PageShell from '@/components/PageShell';
 import { useAuth } from '@/contexts/AuthContext';
 import { explain } from '@/lib/api';
+import {
+    Cpu, BarChart3, Database, Eye, Loader2,
+    Microscope, Shuffle, ArrowLeftRight, BookOpen, FileText,
+    Activity, Lightbulb,
+} from 'lucide-react';
+
+const XAI_CAPS = [
+    { icon: Microscope, name: 'SHAP Values', desc: 'Feature attribution via DeepExplainer' },
+    { icon: Eye, name: 'Attention Weights', desc: 'Temporal focus visualization' },
+    { icon: Shuffle, name: 'What-If Analysis', desc: 'Parameter modification scenarios' },
+    { icon: ArrowLeftRight, name: 'Counterfactuals', desc: 'Minimal changes for target risk' },
+    { icon: BarChart3, name: 'Sensitivity', desc: 'Feature sensitivity ±10%' },
+    { icon: BookOpen, name: 'NL Explanations', desc: 'Human-readable risk reasoning' },
+    { icon: FileText, name: 'Model Card', desc: 'Full transparency documentation' },
+];
 
 export default function ModelInfoPage() {
     const { user, loading } = useAuth();
     const router = useRouter();
     const [modelCard, setModelCard] = useState(null);
 
-    useEffect(() => {
-        if (!loading && !user) router.push('/login');
-    }, [user, loading, router]);
+    useEffect(() => { if (!loading && !user) router.push('/login'); }, [user, loading, router]);
+    useEffect(() => { if (user) explain.modelCard().then(setModelCard).catch(() => { }); }, [user]);
 
-    useEffect(() => {
-        if (user) {
-            explain.modelCard().then(setModelCard).catch(() => { });
-        }
-    }, [user]);
-
-    if (loading || !user) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><div className="spinner" /></div>;
+    if (loading || !user) return <div className="flex min-h-screen items-center justify-center bg-bg-primary"><Loader2 className="h-8 w-8 animate-spin text-accent" /></div>;
 
     return (
-        <div className="page-container">
-            <Sidebar />
-            <div className="main-content">
-                <h1 style={{ marginBottom: 8 }}>Model Transparency</h1>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: 24 }}>
-                    Full transparency into the AI model powering DialysisGuard
-                </p>
+        <PageShell>
+            <div className="mb-8">
+                <h1 className="text-2xl font-bold text-text-primary">Model Transparency</h1>
+                <p className="mt-1 text-sm text-text-muted">Full transparency into the AI model powering DialysisGuard</p>
+            </div>
 
-                {modelCard ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                        <div className="card">
-                            <h3 style={{ marginBottom: 16 }}>Architecture</h3>
-                            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.8 }}>
-                                <p><strong>Model:</strong> {modelCard.model_name}</p>
-                                <p><strong>Type:</strong> {modelCard.model_type}</p>
-                                <p><strong>Framework:</strong> {modelCard.framework}</p>
-                                <p><strong>Features:</strong> {modelCard.n_features}</p>
-                                <p><strong>Time Steps:</strong> {modelCard.n_timesteps}</p>
-                                <p><strong>Total Parameters:</strong> {modelCard.total_params?.toLocaleString()}</p>
-                            </div>
+            {modelCard ? (
+                <div className="grid grid-cols-2 gap-5">
+                    {/* Architecture */}
+                    <div className="card p-5">
+                        <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-text-primary">
+                            <Cpu className="h-4 w-4 text-accent" /> Architecture
+                        </h3>
+                        <div className="space-y-2 text-sm text-text-secondary leading-relaxed">
+                            {[
+                                ['Model', modelCard.model_name],
+                                ['Type', modelCard.model_type],
+                                ['Framework', modelCard.framework],
+                                ['Features', modelCard.n_features],
+                                ['Time Steps', modelCard.n_timesteps],
+                                ['Parameters', modelCard.total_params?.toLocaleString()],
+                            ].map(([k, v]) => (
+                                <p key={k}><span className="font-medium text-text-primary">{k}:</span> {v}</p>
+                            ))}
                         </div>
+                    </div>
 
-                        <div className="card">
-                            <h3 style={{ marginBottom: 16 }}>Performance</h3>
-                            {modelCard.performance && (
-                                <div style={{ fontSize: '0.85rem', lineHeight: 1.8, color: 'var(--text-secondary)' }}>
-                                    <p><strong>Accuracy:</strong> <span style={{ color: 'var(--accent-green)', fontWeight: 700 }}>{(modelCard.performance.accuracy * 100).toFixed(1)}%</span></p>
-                                    <p><strong>AUC-ROC:</strong> <span style={{ color: 'var(--accent-green)', fontWeight: 700 }}>{(modelCard.performance.auc * 100).toFixed(1)}%</span></p>
-                                    <p><strong>Precision:</strong> {(modelCard.performance.precision * 100).toFixed(1)}%</p>
-                                    <p><strong>Recall:</strong> {(modelCard.performance.recall * 100).toFixed(1)}%</p>
-                                    <p><strong>F1 Score:</strong> {(modelCard.performance.f1 * 100).toFixed(1)}%</p>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="card">
-                            <h3 style={{ marginBottom: 16 }}>Training Data</h3>
-                            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.8 }}>
-                                <p><strong>Dataset:</strong> {modelCard.training_data?.dataset}</p>
-                                <p><strong>Patients:</strong> {modelCard.training_data?.n_patients?.toLocaleString()}</p>
-                                <p><strong>Time Steps:</strong> {modelCard.training_data?.n_timesteps_per_patient}</p>
-                                <p><strong>Positive Rate:</strong> {modelCard.training_data?.positive_rate}</p>
-                                <p><strong>Split Strategy:</strong> {modelCard.training_data?.split_strategy}</p>
-                            </div>
-                        </div>
-
-                        <div className="card">
-                            <h3 style={{ marginBottom: 16 }}>XAI Capabilities</h3>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {/* Performance */}
+                    <div className="card p-5">
+                        <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-text-primary">
+                            <BarChart3 className="h-4 w-4 text-risk-low" /> Performance
+                        </h3>
+                        {modelCard.performance && (
+                            <div className="space-y-3">
                                 {[
-                                    { icon: '🔬', name: 'SHAP Values', desc: 'Feature attribution via DeepExplainer' },
-                                    { icon: '👁️', name: 'Attention Weights', desc: 'Temporal focus visualization' },
-                                    { icon: '🔀', name: 'What-If Analysis', desc: 'Parameter modification scenarios' },
-                                    { icon: '🔄', name: 'Counterfactuals', desc: 'Minimal changes for target risk' },
-                                    { icon: '📊', name: 'Sensitivity', desc: 'Feature sensitivity ±10%' },
-                                    { icon: '📖', name: 'NL Explanations', desc: 'Human-readable risk reasoning' },
-                                    { icon: '📋', name: 'Model Card', desc: 'Full transparency documentation' },
-                                ].map((cap, i) => (
-                                    <div key={i} style={{
-                                        display: 'flex', gap: 10, alignItems: 'center', padding: '8px 12px',
-                                        background: 'rgba(6, 182, 212, 0.05)', borderRadius: 'var(--radius-sm)',
-                                        border: '1px solid rgba(6, 182, 212, 0.1)'
-                                    }}>
-                                        <span style={{ fontSize: '1.2rem' }}>{cap.icon}</span>
-                                        <div>
-                                            <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{cap.name}</div>
-                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{cap.desc}</div>
+                                    { label: 'Accuracy', value: modelCard.performance.accuracy, highlight: true },
+                                    { label: 'AUC-ROC', value: modelCard.performance.auc, highlight: true },
+                                    { label: 'Precision', value: modelCard.performance.precision },
+                                    { label: 'Recall', value: modelCard.performance.recall },
+                                    { label: 'F1 Score', value: modelCard.performance.f1 },
+                                ].map(({ label, value, highlight }) => (
+                                    <div key={label}>
+                                        <div className="mb-1 flex justify-between text-sm">
+                                            <span className="text-text-secondary">{label}</span>
+                                            <span className={highlight ? 'font-bold text-risk-low' : 'text-text-primary'}>{(value * 100).toFixed(1)}%</span>
+                                        </div>
+                                        <div className="h-1.5 overflow-hidden rounded-full bg-surface">
+                                            <div className={`h-full rounded-full ${highlight ? 'bg-risk-low' : 'bg-accent/40'}`} style={{ width: `${value * 100}%` }} />
                                         </div>
                                     </div>
                                 ))}
                             </div>
-                        </div>
-
-                        {modelCard.features && (
-                            <div className="card" style={{ gridColumn: '1 / -1' }}>
-                                <h3 style={{ marginBottom: 16 }}>Feature List ({modelCard.features.length})</h3>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                                    {modelCard.features.map((f, i) => (
-                                        <span key={i} style={{
-                                            padding: '4px 10px', background: 'rgba(255,255,255,0.05)',
-                                            borderRadius: 20, fontSize: '0.78rem', color: 'var(--text-secondary)',
-                                            border: '1px solid var(--border-default)'
-                                        }}>{f}</span>
-                                    ))}
-                                </div>
-                            </div>
                         )}
                     </div>
-                ) : (
-                    <div className="card" style={{ textAlign: 'center', padding: 40 }}>
-                        <div className="spinner" style={{ margin: '0 auto' }} />
-                        <p style={{ color: 'var(--text-muted)', marginTop: 16 }}>Loading model information...</p>
+
+                    {/* Training Data */}
+                    <div className="card p-5">
+                        <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-text-primary">
+                            <Database className="h-4 w-4 text-chart-5" /> Training Data
+                        </h3>
+                        <div className="space-y-2 text-sm text-text-secondary leading-relaxed">
+                            {[
+                                ['Dataset', modelCard.training_data?.dataset],
+                                ['Patients', modelCard.training_data?.n_patients?.toLocaleString()],
+                                ['Time Steps', modelCard.training_data?.n_timesteps_per_patient],
+                                ['Positive Rate', modelCard.training_data?.positive_rate],
+                                ['Split Strategy', modelCard.training_data?.split_strategy],
+                            ].map(([k, v]) => (
+                                <p key={k}><span className="font-medium text-text-primary">{k}:</span> {v}</p>
+                            ))}
+                        </div>
                     </div>
-                )}
-            </div>
-        </div>
+
+                    {/* XAI Capabilities */}
+                    <div className="card p-5">
+                        <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-text-primary">
+                            <Lightbulb className="h-4 w-4 text-risk-moderate" /> XAI Capabilities
+                        </h3>
+                        <div className="space-y-2">
+                            {XAI_CAPS.map(({ icon: Icon, name, desc }, i) => (
+                                <div key={i} className="flex items-center gap-3 rounded-lg border border-accent/10 bg-accent/5 px-3 py-2.5">
+                                    <Icon className="h-4 w-4 shrink-0 text-accent" />
+                                    <div>
+                                        <p className="text-sm font-medium text-text-primary">{name}</p>
+                                        <p className="text-xs text-text-muted">{desc}</p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Feature List */}
+                    {modelCard.features && (
+                        <div className="card col-span-2 p-5">
+                            <h3 className="mb-4 text-sm font-semibold text-text-primary">Feature List ({modelCard.features.length})</h3>
+                            <div className="flex flex-wrap gap-2">
+                                {modelCard.features.map((f, i) => (
+                                    <span key={i} className="rounded-full border border-border-subtle bg-bg-secondary px-3 py-1 text-xs text-text-secondary">{f}</span>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            ) : (
+                <div className="card flex flex-col items-center py-16 text-center">
+                    <Loader2 className="mb-3 h-8 w-8 animate-spin text-accent" />
+                    <p className="text-sm text-text-muted">Loading model information…</p>
+                </div>
+            )}
+        </PageShell>
     );
 }

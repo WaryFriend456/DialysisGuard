@@ -1,13 +1,16 @@
 """
-DialysisGuard FastAPI Application — Main Entry Point
+DialysisGuard FastAPI Application - Main Entry Point
 
 Run with: uvicorn main:app --reload --port 8000
 """
 import sys
 import os
+import logging
+import traceback
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 # Ensure imports work
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -18,7 +21,9 @@ from services.ml_service import ml_service
 from services.xai_service import xai_service
 
 # Routes
-from routes.auth import router as auth_router
+from routes.auth import router as auth_router, seed_super_admin
+from routes.admin import router as admin_router
+from routes.org_admin import router as org_admin_router
 from routes.patients import router as patients_router
 from routes.sessions import router as sessions_router
 from routes.predictions import router as predictions_router
@@ -29,14 +34,23 @@ from routes.explanations import router as explanations_router
 from websocket.realtime import websocket_monitor
 
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger("dialysisguard.api")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown events."""
-    print("🚀 Starting DialysisGuard API...")
+    logger.info("Starting DialysisGuard API")
     
     # Initialize database
     get_database()
-    print("✅ MongoDB connected")
+    logger.info("MongoDB connected")
+    seed_status = seed_super_admin()
+    logger.info("Super admin seed %s", seed_status)
     
     # Initialize ML model
     ml_service.initialize()
@@ -44,14 +58,14 @@ async def lifespan(app: FastAPI):
     # Initialize XAI service
     xai_service.initialize(ml_service)
     
-    print("🚀 DialysisGuard API is ready!")
-    print(f"📄 API Docs: http://localhost:8000/docs")
+    logger.info("DialysisGuard API is ready")
+    logger.info("API docs available at http://localhost:8000/docs")
     
     yield
     
     # Shutdown
     close_database()
-    print("👋 DialysisGuard API shutdown")
+    logger.info("DialysisGuard API shutdown")
 
 
 app = FastAPI(
@@ -68,10 +82,31 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+
+
+# Catch-all exception handler — ensures CORS headers on error responses
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Return CORS-friendly error responses so the browser shows the real error."""
+    origin = request.headers.get("origin", "")
+    headers = {}
+    if origin in settings.CORS_ORIGINS:
+        headers["access-control-allow-origin"] = origin
+        headers["access-control-allow-credentials"] = "true"
+    
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc)},
+        headers=headers,
+    )
 
 # REST routes
 app.include_router(auth_router)
+app.include_router(admin_router)
+app.include_router(org_admin_router)
 app.include_router(patients_router)
 app.include_router(sessions_router)
 app.include_router(predictions_router)

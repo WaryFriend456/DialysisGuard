@@ -7,7 +7,7 @@ import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from database import get_database
-from routes.auth import get_current_user
+from routes.auth import require_org_user
 from services.alert_service import alert_service
 
 router = APIRouter(prefix="/api/alerts", tags=["Alerts"])
@@ -19,11 +19,11 @@ async def list_alerts(
     acknowledged: bool = Query(None),
     session_id: str = Query(None),
     limit: int = Query(50, ge=1, le=200),
-    user=Depends(get_current_user)
+    user=Depends(require_org_user)
 ):
     """List alerts with filters."""
     db = get_database()
-    query = {}
+    query = {"org_id": user["org_id"]}
     
     if severity:
         query["severity"] = severity
@@ -42,9 +42,9 @@ async def list_alerts(
 
 
 @router.post("/{alert_id}/acknowledge")
-async def acknowledge_alert(alert_id: str, user=Depends(get_current_user)):
+async def acknowledge_alert(alert_id: str, user=Depends(require_org_user)):
     """Acknowledge an alert."""
-    result = alert_service.acknowledge_alert(alert_id)
+    result = alert_service.acknowledge_alert(alert_id, user["org_id"])
     if not result:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Alert not found")
@@ -53,6 +53,6 @@ async def acknowledge_alert(alert_id: str, user=Depends(get_current_user)):
 
 
 @router.get("/stats")
-async def alert_stats(user=Depends(get_current_user)):
+async def alert_stats(user=Depends(require_org_user)):
     """Get alert statistics."""
-    return alert_service.get_alert_stats()
+    return alert_service.get_alert_stats(user["org_id"])

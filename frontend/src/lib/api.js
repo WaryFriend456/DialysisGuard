@@ -39,9 +39,35 @@ async function request(endpoint, options = {}) {
 
 // Auth
 export const auth = {
-    register: (data) => request('/api/auth/register', { method: 'POST', body: JSON.stringify(data) }),
     login: (data) => request('/api/auth/login', { method: 'POST', body: JSON.stringify(data) }),
     me: () => request('/api/auth/me'),
+    changePassword: (data) => request('/api/auth/change-password', { method: 'POST', body: JSON.stringify(data) }),
+};
+
+// Platform admin
+export const admin = {
+    listOrganizations: () => request('/api/admin/organizations'),
+    createOrganization: (data) => request('/api/admin/organizations', { method: 'POST', body: JSON.stringify(data) }),
+    getOrganization: (id) => request(`/api/admin/organizations/${id}`),
+    updateOrganization: (id, data) => request(`/api/admin/organizations/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    suspendOrganization: (id) => request(`/api/admin/organizations/${id}/suspend`, { method: 'POST' }),
+    activateOrganization: (id) => request(`/api/admin/organizations/${id}/activate`, { method: 'POST' }),
+    listOrganizationUsers: (id) => request(`/api/admin/organizations/${id}/users`),
+    createOrgAdmin: (id, data) => request(`/api/admin/organizations/${id}/org-admins`, { method: 'POST', body: JSON.stringify(data) }),
+    disableUser: (id) => request(`/api/admin/users/${id}/disable`, { method: 'POST' }),
+    activateUser: (id) => request(`/api/admin/users/${id}/activate`, { method: 'POST' }),
+    resetPassword: (id) => request(`/api/admin/users/${id}/reset-password`, { method: 'POST' }),
+};
+
+// Hospital admin
+export const orgAdmin = {
+    summary: () => request('/api/org/summary'),
+    listStaff: () => request('/api/org/staff'),
+    createStaff: (data) => request('/api/org/staff', { method: 'POST', body: JSON.stringify(data) }),
+    updateStaff: (id, data) => request(`/api/org/staff/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    disableStaff: (id) => request(`/api/org/staff/${id}/disable`, { method: 'POST' }),
+    activateStaff: (id) => request(`/api/org/staff/${id}/activate`, { method: 'POST' }),
+    resetPassword: (id) => request(`/api/org/staff/${id}/reset-password`, { method: 'POST' }),
 };
 
 // Patients
@@ -56,10 +82,12 @@ export const patients = {
 // Sessions
 export const sessions = {
     create: (data) => request('/api/sessions/', { method: 'POST', body: JSON.stringify(data) }),
+    current: (patientId) => request(`/api/sessions/active/current${patientId ? `?patient_id=${patientId}` : ''}`),
     get: (id) => request(`/api/sessions/${id}`),
     stop: (id) => request(`/api/sessions/${id}/stop`, { method: 'POST' }),
     report: (id) => request(`/api/sessions/${id}/report`),
     forPatient: (patientId) => request(`/api/sessions/patient/${patientId}`),
+    stats: () => request('/api/sessions/stats'),
 };
 
 // Predictions
@@ -88,9 +116,11 @@ export const explain = {
 // WebSocket
 export function connectMonitor(sessionId, onMessage, onError, onClose) {
     const token = getToken();
-    const ws = new WebSocket(`${WS_BASE}/ws/monitor/${sessionId}`);
+    const ws = new WebSocket(`${WS_BASE}/ws/monitor/${sessionId}?token=${encodeURIComponent(token || '')}`);
 
-    ws.onopen = () => console.log('WebSocket connected');
+    ws.onopen = () => {
+        // connection established
+    };
     ws.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);

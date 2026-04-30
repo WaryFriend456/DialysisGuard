@@ -6,13 +6,14 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 pydantic==2.9.0
 pydantic-settings==2.5.0
+email-validator==2.2.0
 
 # Database
 pymongo==4.8.0
 motor==3.5.0
 
 # ML / Deep Learning
-tensorflow==2.15.0
+tensorflow==2.18.0
 numpy==1.26.4
 pandas==2.2.2
 scikit-learn==1.5.1

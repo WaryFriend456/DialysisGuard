@@ -1,7 +1,8 @@
 'use client';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/contexts/AuthContext';
+import { dashboardPathForRole, useAuth } from '@/contexts/AuthContext';
+import { Loader2 } from 'lucide-react';
 
 export default function Home() {
   const { user, loading } = useAuth();
@@ -10,7 +11,7 @@ export default function Home() {
   useEffect(() => {
     if (!loading) {
       if (user) {
-        router.push(user.role === 'doctor' ? '/dashboard/doctor' : '/dashboard/caregiver');
+        router.push(user.must_change_password ? '/change-password' : dashboardPathForRole(user.role));
       } else {
         router.push('/login');
       }
@@ -18,8 +19,8 @@ export default function Home() {
   }, [user, loading, router]);
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
-      <div className="spinner" />
+    <div className="flex min-h-screen items-center justify-center bg-bg-primary">
+      <Loader2 className="h-8 w-8 animate-spin text-accent" />
     </div>
   );
 }

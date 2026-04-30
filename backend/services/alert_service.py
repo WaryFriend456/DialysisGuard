@@ -23,9 +23,9 @@ class AlertService:
     
     # Risk thresholds for alert generation
     ALERT_THRESHOLDS = {
-        "MODERATE": 0.30,
-        "HIGH": 0.50,
-        "CRITICAL": 0.75,
+        "MODERATE": 0.28,
+        "HIGH": 0.48,
+        "CRITICAL": 0.72,
     }
     
     def should_alert(self, risk_prob: float, recent_alerts: list = None) -> Optional[str]:
@@ -47,7 +47,7 @@ class AlertService:
         
         return None
     
-    def create_alert(self, session_id: str, patient_id: str,
+    def create_alert(self, session_id: str, patient_id: str, org_id: str,
                       severity: str, risk_prob: float,
                       confidence: dict = None, 
                       nl_explanation: str = "",
@@ -59,6 +59,7 @@ class AlertService:
         alert_doc = {
             "session_id": session_id,
             "patient_id": patient_id,
+            "org_id": org_id,
             "severity": severity,
             "risk_probability": round(risk_prob, 4),
             "confidence_lower": confidence.get("ci_lower") if confidence else None,
@@ -79,12 +80,17 @@ class AlertService:
         
         return alert_doc
     
-    def acknowledge_alert(self, alert_id: str) -> dict:
+    def acknowledge_alert(self, alert_id: str, org_id: str) -> dict:
         """Acknowledge an alert."""
         db = get_database()
-        
+
+        try:
+            query = {"_id": ObjectId(alert_id), "org_id": org_id}
+        except Exception:
+            return None
+
         result = db.alerts.update_one(
-            {"_id": ObjectId(alert_id)},
+            query,
             {"$set": {
                 "acknowledged": True,
                 "acknowledged_at": datetime.utcnow().isoformat()
@@ -94,9 +100,9 @@ class AlertService:
         if result.matched_count == 0:
             return None
         
-        return db.alerts.find_one({"_id": ObjectId(alert_id)})
+        return db.alerts.find_one(query)
     
-    def check_escalation(self, session_id: str) -> List[dict]:
+    def check_escalation(self, session_id: str, org_id: str) -> List[dict]:
         """
         Check for alerts that need escalation.
         Returns list of escalated alerts.
@@ -105,6 +111,7 @@ class AlertService:
         
         unacked = list(db.alerts.find({
             "session_id": session_id,
+            "org_id": org_id,
             "acknowledged": False
         }))
         
@@ -124,7 +131,7 @@ class AlertService:
                 new_severity = self._escalate_severity(severity)
                 
                 db.alerts.update_one(
-                    {"_id": alert["_id"]},
+                    {"_id": alert["_id"], "org_id": org_id},
                     {"$set": {
                         "escalation_level": new_level,
                         "severity": new_severity,
@@ -138,11 +145,11 @@ class AlertService:
         
         return escalated
     
-    def get_session_alerts(self, session_id: str) -> list:
+    def get_session_alerts(self, session_id: str, org_id: str) -> list:
         """Get all alerts for a session."""
         db = get_database()
         alerts = list(db.alerts.find(
-            {"session_id": session_id}
+            {"session_id": session_id, "org_id": org_id}
         ).sort("created_at", -1))
         
         for a in alerts:
@@ -150,16 +157,17 @@ class AlertService:
         
         return alerts
     
-    def get_alert_stats(self) -> dict:
+    def get_alert_stats(self, org_id: str) -> dict:
         """Get overall alert statistics."""
         db = get_database()
-        
-        total = db.alerts.count_documents({})
-        unacked = db.alerts.count_documents({"acknowledged": False})
+        base_query = {"org_id": org_id}
+
+        total = db.alerts.count_documents(base_query)
+        unacked = db.alerts.count_documents({**base_query, "acknowledged": False})
         
         by_severity = {}
         for sev in ["LOW", "MODERATE", "HIGH", "CRITICAL"]:
-            by_severity[sev] = db.alerts.count_documents({"severity": sev})
+            by_severity[sev] = db.alerts.count_documents({**base_query, "severity": sev})
         
         return {
             "total": total,

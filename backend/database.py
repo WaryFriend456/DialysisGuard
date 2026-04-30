@@ -20,10 +20,18 @@ def get_database():
 
 def _create_indexes():
     """Create database indexes for performance."""
+    db.organizations.create_index("code", unique=True)
+    db.organizations.create_index("status")
     db.users.create_index("email", unique=True)
+    db.users.create_index("org_id")
+    db.users.create_index("role")
+    db.users.create_index("status")
+    db.patients.create_index("org_id")
     db.patients.create_index("created_by")
+    db.sessions.create_index("org_id")
     db.sessions.create_index("patient_id")
     db.sessions.create_index("status")
+    db.alerts.create_index("org_id")
     db.alerts.create_index([("session_id", 1), ("created_at", -1)])
     db.alerts.create_index("patient_id")
     db.alerts.create_index("acknowledged")
